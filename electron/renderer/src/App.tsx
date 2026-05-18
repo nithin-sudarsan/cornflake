@@ -6,6 +6,7 @@ import ReminderDetail from './components/ReminderDetail'
 import ProcessingScreen from './components/ProcessingScreen'
 import RightPanel from './components/RightPanel'
 import DeepgramPrivacyModal from './components/DeepgramPrivacyModal'
+import UpdatePrompt from './components/UpdatePrompt'
 import LoginScreen from './components/LoginScreen'
 import SyncLoadingScreen from './components/SyncLoadingScreen'
 import type { ListRecord, ProcessingCompletePayload } from './hooks/useIPC'
@@ -260,6 +261,7 @@ export default function App() {
   return (
     <>
       <DeepgramPrivacyModal />
+      <UpdatePrompt />
 
       <div
         style={{

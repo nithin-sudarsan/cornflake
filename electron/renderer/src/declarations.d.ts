@@ -80,6 +80,8 @@ interface ElectronAPI {
   openMicSettings: () => Promise<null>
   openScreenSettings: () => Promise<null>
   relaunchApp: () => Promise<null>
+  checkForUpdates: () => Promise<null>
+  installUpdate: () => Promise<null>
 
   // Main → Renderer (event subscriptions)
   onMeetingUpcoming: (cb: (payload: unknown) => void) => void
@@ -94,6 +96,8 @@ interface ElectronAPI {
   onSyncPullStart: (cb: () => void) => void
   onSyncPullComplete: (cb: (payload: unknown) => void) => void
   onSyncDataUpdated: (cb: () => void) => void
+  onUpdateAvailable: (cb: (payload: unknown) => void) => void
+  onUpdateDownloaded: (cb: (payload: unknown) => void) => void
   removeAllListeners: (channel: string) => void
 }
 

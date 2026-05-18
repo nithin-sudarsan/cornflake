@@ -14,6 +14,8 @@ export const MAIN_CHANNELS = {
   SYNC_PULL_START:         'sync:pullStart',
   SYNC_PULL_COMPLETE:      'sync:pullComplete',
   SYNC_DATA_UPDATED:       'sync:dataUpdated',
+  UPDATE_AVAILABLE:        'update:available',
+  UPDATE_DOWNLOADED:       'update:downloaded',
 } as const
 
 // Renderer → Main (invoked calls, handled via ipcMain.handle)
@@ -63,6 +65,8 @@ export const RENDERER_CHANNELS = {
   PERMISSIONS_OPEN_MIC:        'permissions:openMicSettings',
   PERMISSIONS_OPEN_SCREEN:     'permissions:openScreenSettings',
   APP_RELAUNCH:                'app:relaunch',
+  UPDATE_CHECK:                'update:check',
+  UPDATE_INSTALL:              'update:install',
 } as const
 
 export type MainChannel = typeof MAIN_CHANNELS[keyof typeof MAIN_CHANNELS]

@@ -32,7 +32,9 @@
       {
         "from": "assets",
         "to": "assets",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "build/.env.production",
@@ -47,8 +49,18 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
-        { "target": "dmg", "arch": ["arm64"] },
-        { "target": "zip", "arch": ["arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Cornflake needs microphone access to record your meetings.",
@@ -58,8 +70,16 @@
       }
     },
     "dmg": {
-      "writeUpdateInfo": false
-    }
+      "writeUpdateInfo": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "nithin-sudarsan",
+        "repo": "cornflake",
+        "releaseType": "release"
+      }
+    ]
   },
   "scripts": {
     "build:main": "tsc --project tsconfig.main.json && npm run copy:migrations",
@@ -73,6 +93,7 @@
     "build:renderer:prod": "NODE_ENV=production webpack --config webpack.config.js --mode production",
     "build:prod-env": "node scripts/build-prod-env.js",
     "dist:mac": "npm run build:main && npm run build:renderer:prod && npm run build:prod-env && electron-builder --mac",
+    "release:mac": "npm run build:main && npm run build:renderer:prod && npm run build:prod-env && electron-builder --mac --publish always",
     "test:transcription": "node scripts/test-transcription.js",
     "test:speaker-inference": "electron --no-sandbox scripts/test-speaker-inference.js",
     "verify:module6": "electron --no-sandbox scripts/verify-module6.js",
@@ -116,6 +137,7 @@
     "@workos-inc/node": "^9.3.0",
     "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
+    "electron-updater": "^6.8.3",
     "googleapis": "^171.4.0",
     "keytar": "^7.9.0",
     "node-addon-api": "^8.7.0",

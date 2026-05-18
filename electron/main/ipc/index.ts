@@ -26,6 +26,7 @@ import {
   openMicSettings,
   openScreenSettings,
 } from '../modules/permissions'
+import { checkForUpdates, quitAndInstall } from '../modules/updater'
 import { runTranscriptionPipeline } from '../modules/transcription'
 import { inferSpeakers, updateVoiceProfiles } from '../modules/speaker-inference'
 import { runExtractionPipeline, generateCommsForMeeting } from '../modules/llm/extraction'
@@ -214,6 +215,20 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle(RENDERER_CHANNELS.APP_RELAUNCH, async () => {
     app.relaunch()
     app.quit()
+    return null
+  })
+
+  // ---------------------------------------------------------------------------
+  // Auto-update — check on demand and install when the user accepts
+  // ---------------------------------------------------------------------------
+
+  ipcMain.handle(RENDERER_CHANNELS.UPDATE_CHECK, async () => {
+    checkForUpdates('manual')
+    return null
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.UPDATE_INSTALL, async () => {
+    quitAndInstall()
     return null
   })
 

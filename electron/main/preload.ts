@@ -50,6 +50,8 @@ const CH = {
   PERMISSIONS_OPEN_MIC:        'permissions:openMicSettings',
   PERMISSIONS_OPEN_SCREEN:     'permissions:openScreenSettings',
   APP_RELAUNCH:                'app:relaunch',
+  UPDATE_CHECK:                'update:check',
+  UPDATE_INSTALL:              'update:install',
   // Main → Renderer
   MEETING_UPCOMING:        'meeting:upcoming',
   CALENDAR_EVENTS_UPDATED: 'calendar:eventsUpdated',
@@ -60,6 +62,8 @@ const CH = {
   SYNC_PULL_START:         'sync:pullStart',
   SYNC_PULL_COMPLETE:      'sync:pullComplete',
   SYNC_DATA_UPDATED:       'sync:dataUpdated',
+  UPDATE_AVAILABLE:        'update:available',
+  UPDATE_DOWNLOADED:       'update:downloaded',
 } as const
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -109,6 +113,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openMicSettings:         ()                                          => ipcRenderer.invoke(CH.PERMISSIONS_OPEN_MIC),
   openScreenSettings:      ()                                          => ipcRenderer.invoke(CH.PERMISSIONS_OPEN_SCREEN),
   relaunchApp:             ()                                          => ipcRenderer.invoke(CH.APP_RELAUNCH),
+  checkForUpdates:         ()                                          => ipcRenderer.invoke(CH.UPDATE_CHECK),
+  installUpdate:           ()                                          => ipcRenderer.invoke(CH.UPDATE_INSTALL),
 
   // Main → Renderer (event subscriptions)
   onMeetingUpcoming:        (cb: (payload: unknown) => void) => ipcRenderer.on(CH.MEETING_UPCOMING,        (_e, p) => cb(p)),
@@ -123,6 +129,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSyncPullStart:      (cb: () => void)                   => ipcRenderer.on(CH.SYNC_PULL_START,    () => cb()),
   onSyncPullComplete:   (cb: (payload: unknown) => void)   => ipcRenderer.on(CH.SYNC_PULL_COMPLETE, (_e, p) => cb(p)),
   onSyncDataUpdated:    (cb: () => void)                   => ipcRenderer.on(CH.SYNC_DATA_UPDATED,  () => cb()),
+  onUpdateAvailable:    (cb: (payload: unknown) => void)   => ipcRenderer.on(CH.UPDATE_AVAILABLE,   (_e, p) => cb(p)),
+  onUpdateDownloaded:   (cb: (payload: unknown) => void)   => ipcRenderer.on(CH.UPDATE_DOWNLOADED,  (_e, p) => cb(p)),
 
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),
 })

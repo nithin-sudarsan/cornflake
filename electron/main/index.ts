@@ -24,6 +24,7 @@ app.setName('Cornflake')
 import { registerIpcHandlers } from './ipc'
 import { initDatabase, closeDatabase } from './modules/database'
 import { primeFromKeychain } from './modules/auth'
+import { initUpdater, stopUpdater } from './modules/updater'
 import {
   startManualRecording,
   startCalendarWatcher,
@@ -319,6 +320,9 @@ app.whenReady().then(async () => {
   if (mainWindow) {
     registerIpcHandlers(mainWindow)
 
+    // Auto-updater (no-op in dev; checks GitHub Releases in packaged builds).
+    initUpdater(mainWindow)
+
     // Update tray label whenever the event cache refreshes
     setOnEventsUpdated(updateTrayLabel)
 
@@ -368,6 +372,7 @@ app.on('before-quit', () => {
   if (_trayLabelTimer) clearInterval(_trayLabelTimer)
   stopCallbackServer()
   stopCalendarWatcher()
+  stopUpdater()
   closeDatabase()
 })
 
