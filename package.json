@@ -1,0 +1,125 @@
+{
+  "name": "cornflake",
+  "productName": "Cornflake",
+  "version": "1.0.0",
+  "description": "AI-powered meeting accountability app",
+  "main": "dist/main/index.js",
+  "build": {
+    "appId": "app.cornflake.mac",
+    "productName": "Cornflake",
+    "asar": true,
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "!**/*.map",
+      "!**/__pycache__/**",
+      "!**/*.wav",
+      "!**/*.md",
+      "!phase2-docs/**",
+      "!scripts/**",
+      "!meeting-notes-example/**",
+      "!brand-assets/**"
+    ],
+    "extraResources": [
+      {
+        "from": "swift/build/Release/cornflake_capture.node",
+        "to": "cornflake_capture.node"
+      },
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "build/.env.production",
+        "to": ".env"
+      }
+    ],
+    "mac": {
+      "icon": "assets/cornflake.icns",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] },
+        { "target": "zip", "arch": ["arm64"] }
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Cornflake needs microphone access to record your meetings.",
+        "NSAudioCaptureUsageDescription": "Cornflake records system audio from your meetings so it can transcribe what other participants say.",
+        "NSScreenCaptureUsageDescription": "Cornflake records system audio (the other participants in your meetings) via Screen Recording.",
+        "NSCalendarsUsageDescription": "Cornflake reads your calendar to know which meetings you are in.",
+        "LSMinimumSystemVersion": "13.0"
+      }
+    },
+    "dmg": {
+      "writeUpdateInfo": false
+    }
+  },
+  "scripts": {
+    "build:main": "tsc --project tsconfig.main.json && npm run copy:migrations",
+    "build:renderer": "webpack --config webpack.config.js",
+    "build": "npm run build:main && npm run build:renderer",
+    "copy:migrations": "rm -rf dist/main/modules/database/migrations && cp -r electron/main/modules/database/migrations dist/main/modules/database/migrations",
+    "rebuild:native": "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer electron-rebuild -f -w better-sqlite3 && npm run build:capture",
+    "build:capture": "cd swift && DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer node-gyp rebuild --target=$(node -p \"require('../node_modules/electron/package.json').version\") --arch=$(uname -m) --dist-url=https://electronjs.org/headers --runtime=electron --build-from-source",
+    "postinstall": "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer electron-rebuild -f -w better-sqlite3",
+    "start": "tsc -p tsconfig.main.json && npm run copy:migrations && webpack --config webpack.config.js && electron .",
+    "build:renderer:prod": "NODE_ENV=production webpack --config webpack.config.js --mode production",
+    "build:prod-env": "node scripts/build-prod-env.js",
+    "dist:mac": "npm run build:main && npm run build:renderer:prod && npm run build:prod-env && electron-builder --mac",
+    "test:transcription": "node scripts/test-transcription.js",
+    "test:speaker-inference": "electron --no-sandbox scripts/test-speaker-inference.js",
+    "verify:module6": "electron --no-sandbox scripts/verify-module6.js",
+    "test:labeller": "CORNFLAKE_TEST_LABELLER=1 npm start",
+    "test:e2e-live": "electron --no-sandbox scripts/test-e2e-live.js",
+    "verify:module7": "electron --no-sandbox scripts/verify-llm-extraction.js",
+    "pipeline-check": "electron --no-sandbox scripts/pipeline-check.js",
+    "verify:speaker-fix": "electron --no-sandbox scripts/verify-speaker-inference-fix.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "@fontsource-variable/mona-sans": "^5.2.8",
+    "@tailwindcss/postcss": "^4.3.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/dotenv": "^6.1.1",
+    "@types/node": "^25.7.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/uuid": "^10.0.0",
+    "autoprefixer": "^10.5.0",
+    "css-loader": "^7.1.4",
+    "electron": "^36.9.5",
+    "electron-builder": "^26.8.1",
+    "html-webpack-plugin": "^5.6.7",
+    "postcss": "^8.5.14",
+    "postcss-loader": "^8.2.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "style-loader": "^4.0.0",
+    "tailwindcss": "^4.3.0",
+    "ts-loader": "^9.5.7",
+    "typescript": "^6.0.3",
+    "webpack": "^5.106.2",
+    "webpack-cli": "^7.0.2"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^5.2.0",
+    "@workos-inc/node": "^9.3.0",
+    "better-sqlite3": "^12.10.0",
+    "dotenv": "^17.4.2",
+    "googleapis": "^171.4.0",
+    "keytar": "^7.9.0",
+    "node-addon-api": "^8.7.0",
+    "uuid": "^14.0.0"
+  }
+}

@@ -1,0 +1,33 @@
+@import "@fontsource-variable/mona-sans";
+@import "tailwindcss";
+
+:root {
+  --color-text-primary: #C1CCDF;
+  --color-white: #FFFFFF;
+  --color-black: #000000;
+  --color-text-muted: #8A909B;
+  --color-divider: rgba(138, 144, 155, 0.6);
+  --color-bg-deep: #151515;
+  --color-bg-surface: #262626;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  font-family: 'Mona Sans', Inter, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

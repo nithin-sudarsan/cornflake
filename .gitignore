@@ -1,0 +1,28 @@
+node_modules/
+dist/
+.env
+
+# Native addon build output (binary blobs). Sources live in swift/.
+*.node
+swift/build/
+
+# Electron-builder output. Re-built locally via `npm run dist:mac`.
+release/
+prev-release/
+
+# Python sidecar build artifacts (PyInstaller).
+python/build/
+python/dist/
+python/*.spec
+python/__pycache__/
+.venv-sidecar/
+
+# Generated production env file (from scripts/build-prod-env.js).
+build/.env.production
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
