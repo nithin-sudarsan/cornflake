@@ -64,6 +64,9 @@ const CH = {
   SYNC_DATA_UPDATED:       'sync:dataUpdated',
   UPDATE_AVAILABLE:        'update:available',
   UPDATE_DOWNLOADED:       'update:downloaded',
+  TRAY_REQUEST_START:      'tray:requestStart',
+  TRAY_REQUEST_STOP:       'tray:requestStop',
+  TRAY_REQUEST_DISCARD:    'tray:requestDiscard',
 } as const
 
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -131,6 +134,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onSyncDataUpdated:    (cb: () => void)                   => ipcRenderer.on(CH.SYNC_DATA_UPDATED,  () => cb()),
   onUpdateAvailable:    (cb: (payload: unknown) => void)   => ipcRenderer.on(CH.UPDATE_AVAILABLE,   (_e, p) => cb(p)),
   onUpdateDownloaded:   (cb: (payload: unknown) => void)   => ipcRenderer.on(CH.UPDATE_DOWNLOADED,  (_e, p) => cb(p)),
+  onTrayRequestStart:   (cb: () => void)                   => ipcRenderer.on(CH.TRAY_REQUEST_START,   () => cb()),
+  onTrayRequestStop:    (cb: () => void)                   => ipcRenderer.on(CH.TRAY_REQUEST_STOP,    () => cb()),
+  onTrayRequestDiscard: (cb: () => void)                   => ipcRenderer.on(CH.TRAY_REQUEST_DISCARD, () => cb()),
 
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel),
 })

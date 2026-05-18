@@ -21,12 +21,11 @@ console.log('[boot] loaded env from', envPath,
 // app.whenReady() — Electron caches the name early.
 app.setName('Cornflake')
 
-import { registerIpcHandlers } from './ipc'
+import { registerIpcHandlers, registerTrayHooks } from './ipc'
 import { initDatabase, closeDatabase } from './modules/database'
 import { primeFromKeychain } from './modules/auth'
 import { initUpdater, stopUpdater } from './modules/updater'
 import {
-  startManualRecording,
   startCalendarWatcher,
   stopCalendarWatcher,
   getCachedNextEvent,
@@ -182,16 +181,23 @@ function updateTrayLabel(): void {
 // Tray menu helpers
 // ---------------------------------------------------------------------------
 
+// Tray state — kept in sync with the renderer via setTrayAuthState /
+// setTrayRecordingState. The tray menu is rebuilt whenever either changes.
+let _trayAuthenticated = false
+let _trayRecording: { meetingId: string; title: string } | null = null
+
 function buildIdleMenu(): Menu {
   return Menu.buildFromTemplate([
     {
-      label: '▶  Start listening',
+      label: _trayAuthenticated ? '▶  Start listening' : '▶  Start listening (sign in first)',
+      enabled: _trayAuthenticated,
       click: () => {
         if (!mainWindow) return
-        const payload = startManualRecording()
-        mainWindow.webContents.send(MAIN_CHANNELS.RECORDING_STARTED, payload)
-        tray?.setContextMenu(buildRecordingMenu(payload))
+        // Delegate to the renderer so we go through the canonical start flow
+        // (permission gating, audio capture, error UI). The renderer's handler
+        // is identical to clicking the right-panel button.
         mainWindow.show()
+        mainWindow.webContents.send(MAIN_CHANNELS.TRAY_REQUEST_START)
       },
     },
     { type: 'separator' },
@@ -208,17 +214,16 @@ function buildRecordingMenu(payload: { meetingId: string; title: string }): Menu
     {
       label: 'Stop and review',
       click: () => {
-        tray?.setContextMenu(buildIdleMenu())
-        mainWindow?.show()
-        // Module 4 will send the recording:stop IPC — from the tray we just
-        // reset the menu. The renderer's "Stop and review" button is the
-        // primary path; the tray entry is a convenience shortcut.
+        if (!mainWindow) return
+        mainWindow.show()
+        mainWindow.webContents.send(MAIN_CHANNELS.TRAY_REQUEST_STOP)
       },
     },
     {
       label: 'Discard recording',
       click: () => {
-        tray?.setContextMenu(buildIdleMenu())
+        if (!mainWindow) return
+        mainWindow.webContents.send(MAIN_CHANNELS.TRAY_REQUEST_DISCARD)
       },
     },
     { type: 'separator' },
@@ -226,6 +231,24 @@ function buildRecordingMenu(payload: { meetingId: string; title: string }): Menu
     { type: 'separator' },
     { label: 'Quit', role: 'quit' },
   ])
+}
+
+function rebuildTrayMenu(): void {
+  if (!tray) return
+  tray.setContextMenu(_trayRecording ? buildRecordingMenu(_trayRecording) : buildIdleMenu())
+}
+
+export function setTrayAuthState(authed: boolean): void {
+  if (_trayAuthenticated === authed) return
+  _trayAuthenticated = authed
+  // Logging out mid-recording would leave a stale recording menu — clear it.
+  if (!authed) _trayRecording = null
+  rebuildTrayMenu()
+}
+
+export function setTrayRecordingState(payload: { meetingId: string; title: string } | null): void {
+  _trayRecording = payload
+  rebuildTrayMenu()
 }
 
 function createTray(): void {
@@ -319,6 +342,10 @@ app.whenReady().then(async () => {
 
   if (mainWindow) {
     registerIpcHandlers(mainWindow)
+    registerTrayHooks({
+      setAuth:      setTrayAuthState,
+      setRecording: setTrayRecordingState,
+    })
 
     // Auto-updater (no-op in dev; checks GitHub Releases in packaged builds).
     initUpdater(mainWindow)

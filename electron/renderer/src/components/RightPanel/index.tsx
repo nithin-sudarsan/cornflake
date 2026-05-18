@@ -252,6 +252,25 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
     setDetectedSpeakers([])
   }
 
+  // Tray menu items delegate to these same handlers so there's a single code
+  // path for start/stop/discard regardless of where the user clicked.
+  useEffect(() => {
+    window.electronAPI.onTrayRequestStart(() => {
+      if (appState === 'idle') void handleStartListening()
+    })
+    window.electronAPI.onTrayRequestStop(() => {
+      if (appState === 'recording') void handleStop()
+    })
+    window.electronAPI.onTrayRequestDiscard(() => {
+      if (appState === 'recording') void handleDiscard()
+    })
+    return () => {
+      window.electronAPI.removeAllListeners('tray:requestStart')
+      window.electronAPI.removeAllListeners('tray:requestStop')
+      window.electronAPI.removeAllListeners('tray:requestDiscard')
+    }
+  }, [appState]) // eslint-disable-line react-hooks/exhaustive-deps
+
   function startEditingTitle() {
     if (!activeMeeting) return
     setTitleDraft(activeMeeting.title)

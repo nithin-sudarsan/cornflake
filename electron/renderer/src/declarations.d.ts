@@ -98,6 +98,9 @@ interface ElectronAPI {
   onSyncDataUpdated: (cb: () => void) => void
   onUpdateAvailable: (cb: (payload: unknown) => void) => void
   onUpdateDownloaded: (cb: (payload: unknown) => void) => void
+  onTrayRequestStart: (cb: () => void) => void
+  onTrayRequestStop: (cb: () => void) => void
+  onTrayRequestDiscard: (cb: () => void) => void
   removeAllListeners: (channel: string) => void
 }
 

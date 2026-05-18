@@ -48,6 +48,22 @@ let _ackTimeout: ReturnType<typeof setTimeout> | null = null
 let _activeSession: { id: string; email: string; name: string | null; avatarUrl: string | null } | null = null
 let _bootSyncStarted = false
 
+// Tray hooks — wired by main/index.ts after registerIpcHandlers. We can't
+// import them directly without creating a static circular dependency.
+let _setTrayAuth:      (authed: boolean) => void                                       = () => {}
+let _setTrayRecording: (payload: { meetingId: string; title: string } | null) => void = () => {}
+
+export function registerTrayHooks(hooks: {
+  setAuth:      (authed: boolean) => void
+  setRecording: (payload: { meetingId: string; title: string } | null) => void
+}): void {
+  _setTrayAuth      = hooks.setAuth
+  _setTrayRecording = hooks.setRecording
+  // Apply current state immediately so the tray reflects whatever auth/recording
+  // state was already established by the time tray hooks are wired.
+  _setTrayAuth(_activeSession !== null)
+}
+
 export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // Wire the sync module so it can emit IPC events to the renderer
   syncModule.setMainWindow(mainWindow)
@@ -79,6 +95,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     getDb().deleteMetaValue('workos_user_id')
     _activeSession = null
     _bootSyncStarted = false
+    _setTrayAuth(false)
     if (!mainWindow.isDestroyed()) {
       mainWindow.webContents.send(MAIN_CHANNELS.AUTH_LOGOUT)
     }
@@ -103,6 +120,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
     console.log('[ipc] renderer:ready —',
       session ? `session=${session.email} (cached=${session === _activeSession})` : 'no session')
+
+    _setTrayAuth(session !== null)
 
     if (session) {
       mainWindow.webContents.send(MAIN_CHANNELS.AUTH_LOGIN, session)
@@ -192,6 +211,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const payload = startManualRecording()
     _activeMeetingId = payload.meetingId
     mainWindow.webContents.send(MAIN_CHANNELS.RECORDING_STARTED, payload)
+    _setTrayRecording(payload)
     return { ok: true, ...payload }
   })
 
@@ -242,6 +262,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       //    Keychain + sync re-init.
       _activeSession = profile
       _bootSyncStarted = true
+      _setTrayAuth(true)
 
       // 2. Bring the window back to the front BEFORE broadcasting AUTH_LOGIN.
       //    macOS may queue IPC delivery to a backgrounded webContents (the user
@@ -306,6 +327,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     await logout(mainWindow)
     _activeSession = null
     _bootSyncStarted = false
+    _setTrayAuth(false)
     return null
   })
 
@@ -343,6 +365,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const paths = await stopCapture()
     const meetingId = _activeMeetingId
     _activeMeetingId = null
+    _setTrayRecording(null)
 
     if (meetingId) {
       const db = getDb()
@@ -399,6 +422,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   ipcMain.handle(RENDERER_CHANNELS.RECORDING_DISCARD, async () => {
+    _activeMeetingId = null
+    _setTrayRecording(null)
     const paths = await stopCapture().catch(() => null)
     if (paths) {
       const fs = await import('fs/promises')
@@ -563,6 +588,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     await logout(mainWindow)
     _activeSession = null
     _bootSyncStarted = false
+    _setTrayAuth(false)
     return { success: true }
   })
 

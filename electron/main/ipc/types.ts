@@ -16,6 +16,11 @@ export const MAIN_CHANNELS = {
   SYNC_DATA_UPDATED:       'sync:dataUpdated',
   UPDATE_AVAILABLE:        'update:available',
   UPDATE_DOWNLOADED:       'update:downloaded',
+  // Tray-initiated UI actions — main asks the renderer to run its own
+  // start/stop/discard handlers so we keep a single code path.
+  TRAY_REQUEST_START:      'tray:requestStart',
+  TRAY_REQUEST_STOP:       'tray:requestStop',
+  TRAY_REQUEST_DISCARD:    'tray:requestDiscard',
 } as const
 
 // Renderer → Main (invoked calls, handled via ipcMain.handle)
