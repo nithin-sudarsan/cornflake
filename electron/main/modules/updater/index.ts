@@ -10,15 +10,20 @@
 //
 // Server: GitHub Releases on the repo configured in package.json `build.publish`.
 
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow, app, shell } from 'electron'
 import { autoUpdater, UpdateInfo } from 'electron-updater'
 import { MAIN_CHANNELS } from '../../ipc/types'
 
 const RECHECK_MS = 4 * 60 * 60 * 1000  // 4 hours
+// Ad-hoc signed builds can't use Squirrel.Mac's in-place install — ShipIt
+// rejects the swap on signature mismatch. Until we have a Developer ID
+// certificate, we surface available updates and send users to the GitHub
+// release page to download the new DMG manually.
+const RELEASE_URL_BASE = 'https://github.com/nithin-sudarsan/cornflake/releases/tag/v'
 
 let _mainWindow: BrowserWindow | null = null
 let _checkTimer: ReturnType<typeof setInterval> | null = null
-let _downloadedInfo: UpdateInfo | null = null
+let _availableVersion: string | null = null
 
 export function initUpdater(mainWindow: BrowserWindow): void {
   if (!app.isPackaged) {
@@ -28,9 +33,11 @@ export function initUpdater(mainWindow: BrowserWindow): void {
 
   _mainWindow = mainWindow
 
-  // electron-updater logging — we already have console; nothing fancy required.
-  autoUpdater.autoDownload          = true   // background download on detection
-  autoUpdater.autoInstallOnAppQuit  = false  // we install via explicit user action
+  // Manual-update UX: never auto-download. We only check version and tell
+  // the renderer when a newer release exists — the user clicks through to
+  // GitHub and grabs the DMG themselves.
+  autoUpdater.autoDownload          = false
+  autoUpdater.autoInstallOnAppQuit  = false
   autoUpdater.allowDowngrade        = false
   autoUpdater.allowPrerelease       = false
 
@@ -40,30 +47,16 @@ export function initUpdater(mainWindow: BrowserWindow): void {
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
     console.log('[updater] update available:', info.version)
+    _availableVersion = info.version
     sendToRenderer(MAIN_CHANNELS.UPDATE_AVAILABLE, {
       version: info.version,
       releaseDate: info.releaseDate,
+      releaseUrl: RELEASE_URL_BASE + info.version,
     })
   })
 
   autoUpdater.on('update-not-available', (info: UpdateInfo) => {
     console.log('[updater] up-to-date (current:', app.getVersion(), '/ remote:', info.version, ')')
-  })
-
-  autoUpdater.on('download-progress', (progress) => {
-    // Quiet — the user doesn't see download progress in this UX. Log only.
-    console.log(`[updater] downloading: ${progress.percent.toFixed(1)}% @ ${(progress.bytesPerSecond / 1024 / 1024).toFixed(2)} MB/s`)
-  })
-
-  autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
-    console.log('[updater] update downloaded:', info.version)
-    _downloadedInfo = info
-    sendToRenderer(MAIN_CHANNELS.UPDATE_DOWNLOADED, {
-      version: info.version,
-      releaseDate: info.releaseDate,
-      releaseName: info.releaseName,
-      releaseNotes: info.releaseNotes,
-    })
   })
 
   autoUpdater.on('error', (err) => {
@@ -87,15 +80,17 @@ export function checkForUpdates(reason: 'startup' | 'periodic' | 'manual' = 'man
   })
 }
 
-/** Quit and install the previously downloaded update. */
-export function quitAndInstall(): void {
-  if (!_downloadedInfo) {
-    console.warn('[updater] quitAndInstall called but no update is downloaded')
+/** Open the GitHub release page for the latest available version in the browser. */
+export function openReleasePage(): void {
+  if (!_availableVersion) {
+    console.warn('[updater] openReleasePage called but no update is available')
     return
   }
-  console.log('[updater] quitAndInstall →', _downloadedInfo.version)
-  // isSilent=false (show install UI), isForceRunAfter=true (relaunch after).
-  autoUpdater.quitAndInstall(false, true)
+  const url = RELEASE_URL_BASE + _availableVersion
+  console.log('[updater] opening release page:', url)
+  shell.openExternal(url).catch(err => {
+    console.error('[updater] openExternal failed:', err)
+  })
 }
 
 export function stopUpdater(): void {

@@ -1,21 +1,21 @@
 import React, { useEffect, useState } from 'react'
 
-interface DownloadedPayload {
+interface AvailablePayload {
   version:      string
   releaseDate?: string
-  releaseName?: string
+  releaseUrl?:  string
 }
 
 export default function UpdatePrompt() {
-  const [info, setInfo] = useState<DownloadedPayload | null>(null)
+  const [info, setInfo] = useState<AvailablePayload | null>(null)
   const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
-    window.electronAPI.onUpdateDownloaded((payload: unknown) => {
-      setInfo(payload as DownloadedPayload)
+    window.electronAPI.onUpdateAvailable((payload: unknown) => {
+      setInfo(payload as AvailablePayload)
       setDismissed(false)  // un-dismiss when a newer version lands
     })
-    return () => window.electronAPI.removeAllListeners('update:downloaded')
+    return () => window.electronAPI.removeAllListeners('update:available')
   }, [])
 
   if (!info || dismissed) return null
@@ -42,14 +42,14 @@ export default function UpdatePrompt() {
         color:      'var(--color-text-primary)',
         marginBottom: 4,
       }}>
-        Update ready
+        Update available
       </div>
       <div style={{
         fontSize: 12,
         color:    'var(--color-text-muted)',
         marginBottom: 12,
       }}>
-        Cornflake {info.version} is ready to install. Restart to apply.
+        Cornflake {info.version} is out. Download the new DMG to update.
       </div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button
@@ -81,7 +81,7 @@ export default function UpdatePrompt() {
             fontFamily:   'inherit',
           }}
         >
-          Restart now
+          Download
         </button>
       </div>
     </div>
