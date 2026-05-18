@@ -33,6 +33,7 @@ import {
   broadcastAuthStatus,
   resendCachedEventsToRenderer,
   sendDisplayEventsToRenderer,
+  triggerPoll,
 } from './modules/calendar-watcher'
 import { handleCallback, stopCallbackServer } from './modules/auth'
 import { MAIN_CHANNELS } from './ipc/types'
@@ -300,6 +301,14 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+  })
+
+  // Refresh calendar events whenever the window regains focus. The 60s poll
+  // means a freshly-created Google Calendar event can take up to a minute to
+  // appear; this fires an immediate poll when the user switches back to the
+  // app (e.g. after creating the event in their browser).
+  mainWindow.on('focus', () => {
+    triggerPoll()
   })
 }
 
