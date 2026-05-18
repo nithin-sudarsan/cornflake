@@ -22,7 +22,7 @@ interface ElectronAPI {
   ackProcessingComplete: () => void
   startManual: () => Promise<
     | { ok: true;  meetingId: string; title: string }
-    | { ok: false; code: 'mic_denied' | 'screen_denied' | 'needs_restart' | 'capture_failed'; message: string }
+    | { ok: false; code: 'mic_denied' | 'audio_denied' | 'capture_failed'; message: string }
     | null
   >
   stopRecording: () => Promise<unknown>

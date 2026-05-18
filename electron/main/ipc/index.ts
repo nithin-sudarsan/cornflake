@@ -158,63 +158,26 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       }
     }
 
-    // 2. Start audio capture. ScreenCaptureKit will raise its own permission
-    //    prompt the first time SCStream is started — that's the correct flow
-    //    and we deliberately do NOT pre-check it. Only the addon's own
-    //    SCStreamErrorUserDeclined (-3801) error is treated as a permission
-    //    denial here; any other failure surfaces as a generic capture error
-    //    with no claim about Screen Recording state.
+    // 2. Start audio capture. The CoreAudio Process Tap inside the addon will
+    //    raise the System Audio Recording prompt the first time it's invoked
+    //    (kTCCServiceAudioCapture). If the user declines or the tap fails for
+    //    any other reason, surface the addon's error verbatim.
     try {
       await startCapture()
     } catch (err) {
       const raw = (err as Error).message || ''
       console.error('[recording] startCapture failed:', raw)
 
-      if (raw.startsWith('SCSTREAM_USER_DECLINED:')) {
+      // Addon prefixes: AUDIO_TAP_CREATE_FAILED:<status>, AUDIO_AGGREGATE_CREATE_FAILED:<status>,
+      // AUDIO_TAP_UID_FAILED, AUDIO_SET_DEVICE_FAILED:<status>, AUDIO_ENGINE_FAILED:<msg>.
+      // A TCC denial from AudioHardwareCreateProcessTap typically returns
+      // kAudio_NotPermittedError (1852797029) → AUDIO_TAP_CREATE_FAILED:1852797029.
+      if (raw.startsWith('AUDIO_TAP_CREATE_FAILED:1852797029') ||
+          raw.startsWith('AUDIO_TAP_CREATE_FAILED:-1')) {
         return {
           ok: false,
-          code: 'screen_denied',
-          message: 'Screen Recording access is required. Enable Cornflake in System Settings → Privacy & Security → Screen & System Audio Recording, then try again.',
-        }
-      }
-
-      const scErrorMatch = raw.match(/^SCSTREAM_ERROR:([^:]*):(-?\d+):(.*)$/)
-      if (scErrorMatch) {
-        const [, domain, code, description] = scErrorMatch
-        console.error('[recording] ScreenCaptureKit error details:', { domain, code, description })
-
-        if (code === '-3803') {
-          return {
-            ok: false,
-            code: 'capture_failed',
-            message:
-              'macOS rejected Cornflake\'s Screen Recording grant (SCStreamErrorMissingEntitlements / code -3803).\n\n' +
-              'This usually means the app\'s code signature changed since the grant was issued. Try removing Cornflake from System Settings → Privacy & Security → Screen & System Audio Recording, then re-add it, then restart the app.',
-          }
-        }
-
-        // Any other ScreenCaptureKit error: surface the code + description so
-        // we can see what macOS actually reported. Never silently mis-classify
-        // as "screen denied" or "needs restart" if SCStream itself isn't saying that.
-        return {
-          ok: false,
-          code: 'capture_failed',
-          message: `Could not start recording (ScreenCaptureKit ${code}): ${description}`,
-        }
-      }
-
-      // No SCSTREAM_ERROR prefix → fall back to legacy string heuristics for
-      // generic SCShareableContent failures that pre-date the structured prefix.
-      const rawLower = raw.toLowerCase()
-      const needsRestart =
-        rawLower.includes('requires a restart') ||
-        rawLower.includes('unable to get shareable content') ||
-        rawLower.includes('no display available')
-      if (needsRestart) {
-        return {
-          ok: false,
-          code: 'needs_restart',
-          message: 'Screen Recording was just enabled. Please quit and relaunch Cornflake for the permission to take effect.',
+          code: 'audio_denied',
+          message: 'System Audio Recording access is required. Enable Cornflake in System Settings → Privacy & Security → System Audio Recording Only, then try again.',
         }
       }
 

@@ -1,22 +1,38 @@
 // CornflakeCapture.mm
-// N-API addon: system audio via ScreenCaptureKit, mic via AVAudioEngine.
-// Both streams output as 16 kHz mono 16-bit PCM WAV temp files.
+// N-API addon: system audio via CoreAudio Process Tap (macOS 14.2+),
+// mic via AVAudioEngine. Both streams output as 16 kHz mono 16-bit PCM WAV
+// temp files.
 //
 // Exported:
 //   startCapture(cb: (err: string|null) => void): void
 //   stopCapture (cb: (err: string|null, result: {micPath,systemAudioPath}|null) => void): void
+//
+// System audio capture uses Apple's CoreAudio Process Tap API:
+//   1. CATapDescription describes the tap (all system audio output)
+//   2. AudioHardwareCreateProcessTap creates the tap
+//   3. AudioHardwareCreateAggregateDevice wraps the tap into a virtual input
+//   4. AVAudioEngine reads PCM from the aggregate device
+//
+// This avoids ScreenCaptureKit entirely. macOS surfaces this in System
+// Settings → Privacy & Security → "System Audio Recording Only" (different
+// TCC service from Screen Recording — kTCCServiceAudioCapture).
+//
+// Info.plist must include: NSAudioCaptureUsageDescription
 
 #import <Foundation/Foundation.h>
-#import <ScreenCaptureKit/ScreenCaptureKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <CoreMedia/CoreMedia.h>
-#import <CoreGraphics/CoreGraphics.h>
+#import <CoreAudio/CoreAudio.h>
+#import <CoreAudio/AudioHardwareTapping.h>
+#import <CoreAudio/CATapDescription.h>
+#import <AudioToolbox/AudioToolbox.h>
 #include <napi.h>
 #include <string>
 #include <atomic>
 #include <mutex>
 #include <cstdio>
 #include <cstdint>
+#include <unistd.h>
 
 // ─── WAV helpers ─────────────────────────────────────────────────────────────
 
@@ -29,7 +45,6 @@ static inline int16_t f32ToI16(float v) {
     return static_cast<int16_t>(v * 32767.0f);
 }
 
-// Write 44-byte WAV header at the current file position.
 static void writeWavHeader(FILE* f, uint32_t numSamples) {
     uint32_t dataSize   = numSamples * kChannels * 2;
     uint32_t chunkSize  = 36 + dataSize;
@@ -52,8 +67,6 @@ static void writeWavHeader(FILE* f, uint32_t numSamples) {
     fwrite("data",          1, 4, f); fwrite(&dataSize,     4, 1, f);
 }
 
-// Thread-safe PCM file accumulator. Opens with a 44-byte placeholder header;
-// finalises the real header when close() is called.
 struct PcmFile {
     FILE*    fp         = nullptr;
     uint32_t numSamples = 0;
@@ -90,16 +103,16 @@ struct PcmFile {
 
 // ─── Global capture state ────────────────────────────────────────────────────
 
-static SCStream*  __strong g_stream  API_AVAILABLE(macos(13.0)) = nil;
-static id         __strong g_handler = nil;  // CornflakeStreamHandler* — kept alive by global
-static AVAudioEngine*      g_engine  = nil;
-static std::atomic<bool>         g_capturing    { false };
+static AVAudioEngine* g_micEngine = nil;
+static AVAudioEngine* g_sysEngine = nil;
+static AudioObjectID  g_tapID       = kAudioObjectUnknown;
+static AudioObjectID  g_aggregateID = kAudioObjectUnknown;
+static std::atomic<bool>         g_capturing { false };
 static std::string               g_sysPath;
 static std::string               g_micPath;
 static PcmFile                   g_sysFile;
 static PcmFile                   g_micFile;
 
-// Shared result slots written before invoking the TSFN callback.
 static std::string g_startError;
 static std::string g_stopError;
 static std::string g_stopSysPath;
@@ -114,58 +127,8 @@ static std::string nsStringToStd(NSString* s) {
     return s ? std::string([s UTF8String]) : std::string("");
 }
 
-static void logNSError(NSString* context, NSError* error) {
-    if (!error) {
-        NSLog(@"[CornflakeCapture] %@: no NSError", context);
-        return;
-    }
-    NSLog(@"[CornflakeCapture] %@: domain=%@ code=%ld localized=%@ userInfo=%@",
-          context,
-          error.domain,
-          (long)error.code,
-          error.localizedDescription,
-          error.userInfo);
-}
+// ─── TSFN call-JS callbacks ──────────────────────────────────────────────────
 
-static std::string screenCaptureErrorMessage(NSError* error, const char* fallback) {
-    if (!error) return std::string(fallback);
-
-    std::string localized = nsStringToStd(error.localizedDescription);
-    if ([error.domain isEqualToString:SCStreamErrorDomain] &&
-        error.code == SCStreamErrorUserDeclined) {
-        return std::string("SCSTREAM_USER_DECLINED:") + localized;
-    }
-
-    std::string msg = "SCSTREAM_ERROR:";
-    msg += nsStringToStd(error.domain);
-    msg += ":";
-    msg += std::to_string((long)error.code);
-    msg += ":";
-    msg += localized;
-    return msg;
-}
-
-static void cleanupAfterStartFailure() {
-    if (g_engine) {
-        @try {
-            [g_engine.inputNode removeTapOnBus:0];
-        } @catch (NSException* ex) {
-            NSLog(@"[CornflakeCapture] cleanup removeTap exception: %@", ex.reason);
-        }
-        [g_engine stop];
-        g_engine = nil;
-    }
-
-    g_handler = nil;
-    g_stream = nil;
-    g_capturing.store(false);
-    g_micFile.finalise();
-    g_sysFile.finalise();
-}
-
-// ─── TSFN call-JS callbacks (run on Node thread) ─────────────────────────────
-
-// BlockingCall(data, callback) — callback signature is (Env, Function, DataType*)
 static void OnStartCallJs(Napi::Env env, Napi::Function jsCb, void* /*data*/) {
     if (g_startError.empty()) {
         jsCb.Call({ env.Null() });
@@ -201,42 +164,128 @@ static void fireStop(const std::string& err, const std::string& sys, const std::
     g_stopTsfn.Release();
 }
 
-// ─── SCStream audio delegate ─────────────────────────────────────────────────
+// ─── Process tap helpers (macOS 14.2+) ───────────────────────────────────────
 
-API_AVAILABLE(macos(13.0))
-@interface CornflakeStreamHandler : NSObject <SCStreamOutput, SCStreamDelegate>
-@end
+// Fetch the tap's CFString UID via the AudioObject property API.
+API_AVAILABLE(macos(14.2))
+static NSString* tapUIDString(AudioObjectID tapID) {
+    CFStringRef uidRef = NULL;
+    UInt32 size = sizeof(uidRef);
+    AudioObjectPropertyAddress addr = {
+        .mSelector = kAudioTapPropertyUID,
+        .mScope    = kAudioObjectPropertyScopeGlobal,
+        .mElement  = kAudioObjectPropertyElementMain,
+    };
+    OSStatus err = AudioObjectGetPropertyData(tapID, &addr, 0, NULL, &size, &uidRef);
+    if (err != noErr || !uidRef) return nil;
+    return (__bridge_transfer NSString*)uidRef;
+}
 
-@implementation CornflakeStreamHandler
+// Create the process tap + aggregate device wrapper. Returns 0 on success and
+// writes the failure reason to errOut on failure.
+API_AVAILABLE(macos(14.2))
+static OSStatus setupSystemAudioTap(std::string& errOut) {
+    // Simplest possible CATapDescription: tap all system audio output as a
+    // stereo mixdown. No process filtering — that can be added back later
+    // once the basic creation path works. Always set the UUID explicitly;
+    // sample code shows several convenience inits leave it nil which then
+    // causes AudioHardwareCreateProcessTap to reject with !obj / 560947818.
+    CATapDescription* desc =
+        [[CATapDescription alloc] initStereoMixdownOfProcesses:@[]];
+    desc.UUID         = [NSUUID UUID];
+    desc.name         = @"Cornflake System Audio";
+    desc.privateTap   = YES;
+    desc.muteBehavior = CATapUnmuted;
 
-- (void)stream:(SCStream*)stream
-    didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
-                   ofType:(SCStreamOutputType)type {
-    if (type != SCStreamOutputTypeAudio) return;  // discard video frames
-    if (!g_capturing.load()) return;
+    NSLog(@"[CornflakeCapture] CATapDescription: UUID=%@ name=%@ processes=%@ "
+          @"exclusive=%d mono=%d mixdown=%d privateTap=%d muteBehavior=%ld",
+          desc.UUID, desc.name, desc.processes,
+          desc.exclusive, desc.mono, desc.mixdown,
+          desc.privateTap, (long)desc.muteBehavior);
 
-    AudioBufferList abl;
-    CMBlockBufferRef blockBuf = NULL;
-    OSStatus err = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-        sampleBuffer, NULL, &abl, sizeof(abl),
-        kCFAllocatorDefault, kCFAllocatorDefault,
-        kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &blockBuf);
-    if (err != noErr) return;
-
-    for (UInt32 i = 0; i < abl.mNumberBuffers; ++i) {
-        const float* samples = static_cast<const float*>(abl.mBuffers[i].mData);
-        size_t n = abl.mBuffers[i].mDataByteSize / sizeof(float);
-        g_sysFile.writeSamples(samples, n);
+    OSStatus err = AudioHardwareCreateProcessTap(desc, &g_tapID);
+    if (err != noErr) {
+        NSLog(@"[CornflakeCapture] AudioHardwareCreateProcessTap failed: %d", (int)err);
+        errOut = "AUDIO_TAP_CREATE_FAILED:" + std::to_string((int)err);
+        return err;
     }
-    if (blockBuf) CFRelease(blockBuf);
+    NSLog(@"[CornflakeCapture] Created process tap, ID=%u", g_tapID);
+
+    NSString* tapUID = tapUIDString(g_tapID);
+    if (!tapUID) {
+        NSLog(@"[CornflakeCapture] Tap UID lookup failed");
+        AudioHardwareDestroyProcessTap(g_tapID);
+        g_tapID = kAudioObjectUnknown;
+        errOut = "AUDIO_TAP_UID_FAILED";
+        return -1;
+    }
+    NSLog(@"[CornflakeCapture] Tap UID: %@", tapUID);
+
+    NSString* aggUID = [NSString stringWithFormat:@"app.cornflake.mac.aggregate.%@",
+                        [[NSUUID UUID] UUIDString]];
+    NSDictionary* aggDict = @{
+        @kAudioAggregateDeviceNameKey:            @"Cornflake Aggregate",
+        @kAudioAggregateDeviceUIDKey:             aggUID,
+        @kAudioAggregateDeviceIsPrivateKey:       @YES,
+        @kAudioAggregateDeviceIsStackedKey:       @NO,
+        @kAudioAggregateDeviceTapAutoStartKey:    @YES,
+        @kAudioAggregateDeviceTapListKey: @[
+            @{
+                @kAudioSubTapUIDKey:                 tapUID,
+                @kAudioSubTapDriftCompensationKey:   @YES,
+            }
+        ],
+    };
+
+    err = AudioHardwareCreateAggregateDevice((__bridge CFDictionaryRef)aggDict, &g_aggregateID);
+    if (err != noErr) {
+        NSLog(@"[CornflakeCapture] AudioHardwareCreateAggregateDevice failed: %d", (int)err);
+        AudioHardwareDestroyProcessTap(g_tapID);
+        g_tapID = kAudioObjectUnknown;
+        errOut = "AUDIO_AGGREGATE_CREATE_FAILED:" + std::to_string((int)err);
+        return err;
+    }
+    NSLog(@"[CornflakeCapture] Created aggregate device ID=%u", g_aggregateID);
+
+    return noErr;
 }
 
-- (void)stream:(SCStream*)stream didStopWithError:(NSError*)error {
-    if (error) logNSError(@"stream didStopWithError", error);
+API_AVAILABLE(macos(14.2))
+static void teardownSystemAudioTap() {
+    if (g_sysEngine) {
+        @try { [g_sysEngine.inputNode removeTapOnBus:0]; }
+        @catch (NSException* ex) {
+            NSLog(@"[CornflakeCapture] sys removeTap exception: %@", ex.reason);
+        }
+        [g_sysEngine stop];
+        g_sysEngine = nil;
+    }
+    if (g_aggregateID != kAudioObjectUnknown) {
+        AudioHardwareDestroyAggregateDevice(g_aggregateID);
+        g_aggregateID = kAudioObjectUnknown;
+    }
+    if (g_tapID != kAudioObjectUnknown) {
+        AudioHardwareDestroyProcessTap(g_tapID);
+        g_tapID = kAudioObjectUnknown;
+    }
+}
+
+static void cleanupAfterStartFailure() {
+    if (g_micEngine) {
+        @try { [g_micEngine.inputNode removeTapOnBus:0]; }
+        @catch (NSException* ex) {
+            NSLog(@"[CornflakeCapture] mic removeTap exception: %@", ex.reason);
+        }
+        [g_micEngine stop];
+        g_micEngine = nil;
+    }
+    if (@available(macOS 14.2, *)) {
+        teardownSystemAudioTap();
+    }
     g_capturing.store(false);
+    g_micFile.finalise();
+    g_sysFile.finalise();
 }
-
-@end
 
 // ─── startCapture ────────────────────────────────────────────────────────────
 
@@ -252,7 +301,6 @@ static Napi::Value StartCapture(const Napi::CallbackInfo& info) {
         return env.Undefined();
     }
 
-    // Create temp WAV file paths
     NSString* tmp  = NSTemporaryDirectory();
     NSString* uuid = [[NSUUID UUID] UUIDString];
     g_sysPath = [[tmp stringByAppendingPathComponent:
@@ -265,17 +313,15 @@ static Napi::Value StartCapture(const Napi::CallbackInfo& info) {
         return env.Undefined();
     }
 
-    // Set up TSFN before going async
     g_startTsfn = Napi::ThreadSafeFunction::New(
         env, info[0].As<Napi::Function>(), "startCapture", 0, 1);
     g_startTsfnLive.store(true);
 
     // ── Mic: AVAudioEngine ────────────────────────────────────────────────────
-    // The tap must use the input node's hardware output format.
-    // Resampling to kSampleRate is done inside the tap via AVAudioConverter.
-    g_engine = [[AVAudioEngine alloc] init];
-    AVAudioInputNode* inputNode = g_engine.inputNode;
-    AVAudioFormat* hwFmt = [inputNode outputFormatForBus:0];
+    g_micEngine = [[AVAudioEngine alloc] init];
+    AVAudioInputNode* micIn = g_micEngine.inputNode;
+    AVAudioFormat* micHwFmt = [micIn outputFormatForBus:0];
+    NSLog(@"[CornflakeCapture] Mic hardware format: %@", micHwFmt);
 
     AVAudioFormat* targetFmt = [[AVAudioFormat alloc]
         initWithCommonFormat:AVAudioPCMFormatFloat32
@@ -284,13 +330,13 @@ static Napi::Value StartCapture(const Napi::CallbackInfo& info) {
                  interleaved:NO];
 
     __block AVAudioConverter* micConverter =
-        [[AVAudioConverter alloc] initFromFormat:hwFmt toFormat:targetFmt];
+        [[AVAudioConverter alloc] initFromFormat:micHwFmt toFormat:targetFmt];
 
-    [inputNode installTapOnBus:0 bufferSize:4096 format:hwFmt
-                         block:^(AVAudioPCMBuffer* hwBuf, AVAudioTime*) {
+    [micIn installTapOnBus:0 bufferSize:4096 format:micHwFmt
+                     block:^(AVAudioPCMBuffer* hwBuf, AVAudioTime*) {
         if (!g_capturing.load()) return;
 
-        double ratio = targetFmt.sampleRate / hwFmt.sampleRate;
+        double ratio = targetFmt.sampleRate / micHwFmt.sampleRate;
         AVAudioFrameCount outFrames =
             static_cast<AVAudioFrameCount>(ceil(hwBuf.frameLength * ratio)) + 8;
         AVAudioPCMBuffer* outBuf =
@@ -314,143 +360,90 @@ static Napi::Value StartCapture(const Napi::CallbackInfo& info) {
             g_micFile.writeSamples(outBuf.floatChannelData[0], outBuf.frameLength);
     }];
 
-    NSError* engineErr = nil;
-    [g_engine startAndReturnError:&engineErr];
-    if (engineErr) {
-        NSLog(@"[CornflakeCapture] AVAudioEngine error: %@", engineErr.localizedDescription);
-        // Non-fatal for dev — mic permission may not be granted yet.
+    NSError* micEngineErr = nil;
+    [g_micEngine startAndReturnError:&micEngineErr];
+    if (micEngineErr) {
+        NSLog(@"[CornflakeCapture] Mic AVAudioEngine error: %@", micEngineErr.localizedDescription);
+        // Non-fatal — JS handles mic permission separately.
     }
 
-    // ── System audio: SCStream ────────────────────────────────────────────────
-    if (@available(macOS 13.0, *)) {
-        // Use the documented CoreGraphics TCC API as the gate before touching
-        // SCStream. CGPreflightScreenCaptureAccess re-checks the TCC database
-        // for the running app's code signature; CGRequestScreenCaptureAccess
-        // triggers the system consent dialog if the grant hasn't been
-        // recorded yet. SCStream's own implicit prompt is unreliable for
-        // ad-hoc-signed apps — going through CG first gives us a much clearer
-        // signal and forces macOS to refresh its in-process cache.
-        bool cgPre  = CGPreflightScreenCaptureAccess();
-        NSLog(@"[CornflakeCapture] CGPreflightScreenCaptureAccess (pre) = %d", cgPre);
-        if (!cgPre) {
-            // Fire the system dialog (no-op if previously denied).
-            bool cgReq = CGRequestScreenCaptureAccess();
-            NSLog(@"[CornflakeCapture] CGRequestScreenCaptureAccess = %d", cgReq);
-            // Re-check after the request — note: if this is the first time we've
-            // asked, the dialog is asynchronous and preflight may still be false
-            // for a few hundred ms. We let the SCShareableContent retry handle
-            // that race; if cgPost is still false we fall through to SCStream
-            // which will return SCStreamErrorUserDeclined and we surface the
-            // proper screen_denied UI.
-            bool cgPost = CGPreflightScreenCaptureAccess();
-            NSLog(@"[CornflakeCapture] CGPreflightScreenCaptureAccess (post) = %d", cgPost);
+    // ── System audio: CoreAudio Process Tap ──────────────────────────────────
+    if (@available(macOS 14.2, *)) {
+        std::string tapErr;
+        OSStatus tapStatus = setupSystemAudioTap(tapErr);
+        if (tapStatus != noErr) {
+            cleanupAfterStartFailure();
+            fireStart(tapErr);
+            return env.Undefined();
         }
 
-        // SCShareableContent has a known race after a fresh Screen Recording
-        // TCC grant: the first call back can return a stale "not authorized"
-        // error even though the grant is now active. Retry once after a brief
-        // delay before classifying the failure for the JS layer.
-        __block int sccAttempt = 0;
-        __block void (^__weak weakSccAttempt)(void) = nil;
-        void (^sccAttemptBlock)(void) = ^{
-            sccAttempt++;
-            NSLog(@"[CornflakeCapture] SCShareableContent attempt %d", sccAttempt);
-            [SCShareableContent
-                getShareableContentExcludingDesktopWindows:YES
-                onScreenWindowsOnly:NO
-                completionHandler:^(SCShareableContent* content, NSError* scErr) {
-                    if (scErr || !content || content.displays.count == 0) {
-                        if (sccAttempt < 2) {
-                            // First failure — wait 600ms and try once more. Cheap
-                            // and covers the post-grant TCC propagation lag.
-                            NSLog(@"[CornflakeCapture] SCShareableContent attempt %d failed, retrying in 600ms", sccAttempt);
-                            dispatch_after(
-                                dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.6 * NSEC_PER_SEC)),
-                                dispatch_get_main_queue(),
-                                ^{ if (weakSccAttempt) weakSccAttempt(); }
-                            );
-                            return;
-                        }
+        g_sysEngine = [[AVAudioEngine alloc] init];
+        AVAudioInputNode* sysIn = g_sysEngine.inputNode;
 
-                        std::string msg;
-                        if (scErr) {
-                            logNSError(@"SCShareableContent preflight error (final attempt)", scErr);
-                            msg = screenCaptureErrorMessage(scErr, "SCShareableContent failed");
-                        } else {
-                            NSLog(@"[CornflakeCapture] SCShareableContent returned no displays: content=%@ displays=%lu",
-                                  content, (unsigned long)(content ? content.displays.count : 0));
-                            msg = "No display available for capture";
-                        }
-                        cleanupAfterStartFailure();
-                        fireStart(msg);
-                        return;
-                    }
+        // Point the system-audio engine's input AudioUnit at our aggregate device.
+        AudioUnit sysAU = [sysIn audioUnit];
+        AudioDeviceID devID = g_aggregateID;
+        OSStatus setDevErr = AudioUnitSetProperty(sysAU,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global, 0,
+            &devID, sizeof(devID));
+        if (setDevErr != noErr) {
+            NSLog(@"[CornflakeCapture] Failed to set input device on sys AU: %d", (int)setDevErr);
+            cleanupAfterStartFailure();
+            fireStart("AUDIO_SET_DEVICE_FAILED:" + std::to_string((int)setDevErr));
+            return env.Undefined();
+        }
 
-                    SCDisplay* display = content.displays.firstObject;
-                SCContentFilter* filter = [[SCContentFilter alloc]
-                    initWithDisplay:display excludingWindows:@[]];
+        AVAudioFormat* sysHwFmt = [sysIn outputFormatForBus:0];
+        NSLog(@"[CornflakeCapture] System audio hardware format: %@", sysHwFmt);
 
-                SCStreamConfiguration* cfg = [[SCStreamConfiguration alloc] init];
-                cfg.capturesAudio               = YES;
-                cfg.excludesCurrentProcessAudio = NO;
-                cfg.sampleRate                  = kSampleRate;
-                cfg.channelCount                = kChannels;
-                // Minimise video overhead — we only care about audio
-                cfg.width                       = 2;
-                cfg.height                      = 2;
-                cfg.minimumFrameInterval        = CMTimeMake(1, 1); // 1 fps
+        __block AVAudioConverter* sysConverter =
+            [[AVAudioConverter alloc] initFromFormat:sysHwFmt toFormat:targetFmt];
 
-                // Store in global so ARC keeps it alive for the duration of capture.
-                // SCStream's delegate/output refs are weak — local vars get deallocated
-                // after the block exits, silently killing all callbacks.
-                g_handler = [[CornflakeStreamHandler alloc] init];
-                g_stream = [[SCStream alloc] initWithFilter:filter
-                                              configuration:cfg
-                                                   delegate:g_handler];
+        [sysIn installTapOnBus:0 bufferSize:4096 format:sysHwFmt
+                         block:^(AVAudioPCMBuffer* hwBuf, AVAudioTime*) {
+            if (!g_capturing.load()) return;
 
-                // SCStream requires at least one video output registered before
-                // audio callbacks fire — add a no-op video handler on a low-priority queue.
-                NSError* vidAddErr = nil;
-                [g_stream addStreamOutput:g_handler
-                                     type:SCStreamOutputTypeScreen
-                        sampleHandlerQueue:dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0)
-                                     error:&vidAddErr];
-                if (vidAddErr) {
-                    logNSError(@"addStreamOutput(video) warning", vidAddErr);
-                }
+            double ratio = targetFmt.sampleRate / sysHwFmt.sampleRate;
+            AVAudioFrameCount outFrames =
+                static_cast<AVAudioFrameCount>(ceil(hwBuf.frameLength * ratio)) + 8;
+            AVAudioPCMBuffer* outBuf =
+                [[AVAudioPCMBuffer alloc] initWithPCMFormat:targetFmt frameCapacity:outFrames];
 
-                NSError* addErr = nil;
-                BOOL added = [g_stream
-                    addStreamOutput:g_handler
-                               type:SCStreamOutputTypeAudio
-                  sampleHandlerQueue:dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0)
-                               error:&addErr];
-                if (!added || addErr) {
-                    if (addErr) logNSError(@"addStreamOutput(audio) error", addErr);
-                    else NSLog(@"[CornflakeCapture] addStreamOutput(audio) failed without NSError");
-                    std::string msg = screenCaptureErrorMessage(addErr, "addStreamOutput failed");
-                    cleanupAfterStartFailure();
-                    fireStart(msg);
-                    return;
-                }
+            __block BOOL inputConsumed = NO;
+            NSError* cvtErr = nil;
+            [sysConverter convertToBuffer:outBuf error:&cvtErr
+                 withInputFromBlock:^AVAudioBuffer*(AVAudioPacketCount /*n*/,
+                                                     AVAudioConverterInputStatus* status) {
+                     if (!inputConsumed) {
+                         *status = AVAudioConverterInputStatus_HaveData;
+                         inputConsumed = YES;
+                         return hwBuf;
+                     }
+                     *status = AVAudioConverterInputStatus_NoDataNow;
+                     return nil;
+                 }];
 
-                [g_stream startCaptureWithCompletionHandler:^(NSError* startErr) {
-                    if (startErr) {
-                        logNSError(@"startCapture error", startErr);
-                        std::string msg = screenCaptureErrorMessage(startErr, "startCapture failed");
-                        cleanupAfterStartFailure();
-                        fireStart(msg);
-                        return;
-                    }
-                    g_capturing.store(true);
-                    fireStart("");  // success
-                }];
-            }];
-        };
-        weakSccAttempt = sccAttemptBlock;
-        sccAttemptBlock();
+            if (!cvtErr && outBuf.frameLength > 0 && outBuf.floatChannelData)
+                g_sysFile.writeSamples(outBuf.floatChannelData[0], outBuf.frameLength);
+        }];
+
+        NSError* sysEngineErr = nil;
+        [g_sysEngine startAndReturnError:&sysEngineErr];
+        if (sysEngineErr) {
+            NSLog(@"[CornflakeCapture] Sys AVAudioEngine error: %@", sysEngineErr.localizedDescription);
+            std::string msg = "AUDIO_ENGINE_FAILED:";
+            msg += [sysEngineErr.localizedDescription UTF8String];
+            cleanupAfterStartFailure();
+            fireStart(msg);
+            return env.Undefined();
+        }
+
+        g_capturing.store(true);
+        fireStart("");  // success
     } else {
-        fireStart("macOS 13.0 or later is required");
+        cleanupAfterStartFailure();
+        fireStart("macOS 14.2 or later is required for system audio capture");
     }
 
     return env.Undefined();
@@ -477,33 +470,23 @@ static Napi::Value StopCapture(const Napi::CallbackInfo& info) {
     g_capturing.store(false);
 
     // Stop mic
-    if (g_engine) {
-        [g_engine.inputNode removeTapOnBus:0];
-        [g_engine stop];
-        g_engine = nil;
+    if (g_micEngine) {
+        @try { [g_micEngine.inputNode removeTapOnBus:0]; }
+        @catch (NSException* ex) {
+            NSLog(@"[CornflakeCapture] stop: mic removeTap exception: %@", ex.reason);
+        }
+        [g_micEngine stop];
+        g_micEngine = nil;
     }
     g_micFile.finalise();
 
-    // Stop SCStream then finalise system audio file
-    if (@available(macOS 13.0, *)) {
-        if (g_stream) {
-            SCStream* s = g_stream;
-            g_stream = nil;
-            [s stopCaptureWithCompletionHandler:^(NSError* err) {
-                g_handler = nil;
-                g_sysFile.finalise();
-                std::string e = err ? [err.localizedDescription UTF8String] : "";
-                fireStop(e, g_sysPath, g_micPath);
-            }];
-        } else {
-            g_sysFile.finalise();
-            fireStop("", g_sysPath, g_micPath);
-        }
-    } else {
-        g_sysFile.finalise();
-        fireStop("", g_sysPath, g_micPath);
+    // Stop system audio
+    if (@available(macOS 14.2, *)) {
+        teardownSystemAudioTap();
     }
+    g_sysFile.finalise();
 
+    fireStop("", g_sysPath, g_micPath);
     return env.Undefined();
 }
 

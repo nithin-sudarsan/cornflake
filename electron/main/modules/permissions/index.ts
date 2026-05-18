@@ -54,7 +54,11 @@ export function openMicSettings(): void {
 }
 
 export function openScreenSettings(): void {
+  // Deep link to the "System Audio Recording Only" pane (TCC service:
+  // kTCCServiceAudioCapture). The old Privacy_ScreenCapture target was for
+  // ScreenCaptureKit; we no longer use that API. Falls back to the parent
+  // Privacy & Security pane on older OS releases that don't have the audio pane.
   shell.openExternal(
-    'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture'
   )
 }

@@ -143,7 +143,7 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
   const [detectedSpeakers, setDetectedSpeakers] = useState<SpeakerAddedPayload[]>([])
   const [isConnected, setIsConnected]     = useState(false)
   const [isStarting, setIsStarting]       = useState(false)
-  const [startError, setStartError]       = useState<{ code: 'mic_denied' | 'screen_denied' | 'needs_restart' | 'capture_failed'; message: string } | null>(null)
+  const [startError, setStartError]       = useState<{ code: 'mic_denied' | 'audio_denied' | 'capture_failed'; message: string } | null>(null)
   const [editingTitle, setEditingTitle]   = useState(false)
   const [titleDraft, setTitleDraft]       = useState('')
   const [pastMeetings, setPastMeetings]     = useState<PastMeeting[]>([])
@@ -228,7 +228,7 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
       if (result && result.ok === false) {
         // Inline error — no modal. The button area shows the message and a
         // deep-link to the relevant System Settings pane.
-        if (result.code === 'mic_denied' || result.code === 'screen_denied' || result.code === 'needs_restart' || result.code === 'capture_failed') {
+        if (result.code === 'mic_denied' || result.code === 'audio_denied' || result.code === 'capture_failed') {
           setStartError({ code: result.code, message: result.message })
         }
       }
@@ -393,9 +393,8 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
               {startError.code !== 'capture_failed' && (
                 <button
                   onClick={() => {
-                    if      (startError.code === 'mic_denied')    window.electronAPI.openMicSettings()
-                    else if (startError.code === 'needs_restart') window.electronAPI.relaunchApp()
-                    else                                          window.electronAPI.openScreenSettings()
+                    if (startError.code === 'mic_denied') window.electronAPI.openMicSettings()
+                    else                                  window.electronAPI.openScreenSettings()
                   }}
                   style={{
                     background:   'transparent',
@@ -409,7 +408,7 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
                     fontFamily:   'inherit',
                   }}
                 >
-                  {startError.code === 'needs_restart' ? 'Quit and Relaunch' : 'Open System Settings'}
+                  Open System Settings
                 </button>
               )}
             </div>
