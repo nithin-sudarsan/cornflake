@@ -185,16 +185,23 @@ static NSString* tapUIDString(AudioObjectID tapID) {
 // writes the failure reason to errOut on failure.
 API_AVAILABLE(macos(14.2))
 static OSStatus setupSystemAudioTap(std::string& errOut) {
-    // Exclude our own pid so Cornflake's own UI sounds aren't captured.
-    NSNumber* ourPid = @(getpid());
-
-    CATapDescription* desc = [[CATapDescription alloc] initStereoMixdownOfProcesses:@[]];
-    desc.name        = @"Cornflake System Audio";
-    desc.processes   = @[ ourPid ];
-    desc.exclusive   = YES;   // YES + processes = mix ALL output EXCEPT listed pids
-    desc.privateTap  = YES;   // not surfaced to other apps
+    // Simplest possible CATapDescription: tap all system audio output as a
+    // stereo mixdown. No process filtering — that can be added back later
+    // once the basic creation path works. Always set the UUID explicitly;
+    // sample code shows several convenience inits leave it nil which then
+    // causes AudioHardwareCreateProcessTap to reject with !obj / 560947818.
+    CATapDescription* desc =
+        [[CATapDescription alloc] initStereoMixdownOfProcesses:@[]];
+    desc.UUID         = [NSUUID UUID];
+    desc.name         = @"Cornflake System Audio";
+    desc.privateTap   = YES;
     desc.muteBehavior = CATapUnmuted;
-    desc.UUID        = [NSUUID UUID];
+
+    NSLog(@"[CornflakeCapture] CATapDescription: UUID=%@ name=%@ processes=%@ "
+          @"exclusive=%d mono=%d mixdown=%d privateTap=%d muteBehavior=%ld",
+          desc.UUID, desc.name, desc.processes,
+          desc.exclusive, desc.mono, desc.mixdown,
+          desc.privateTap, (long)desc.muteBehavior);
 
     OSStatus err = AudioHardwareCreateProcessTap(desc, &g_tapID);
     if (err != noErr) {
