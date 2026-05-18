@@ -114,13 +114,21 @@ function handleFallbackDeepLink(url: string): void {
 // ---------------------------------------------------------------------------
 
 function assertMinMacOSVersion(): void {
-  const release = os.release() // Darwin kernel version e.g. "22.0.0" for macOS 13
-  const major = parseInt(release.split('.')[0] ?? '0', 10)
-  // Darwin 22 = macOS 13 (Ventura). Darwin 21 = macOS 12 (Monterey).
-  if (major < 22) {
+  // Darwin kernel version → macOS:
+  //   Darwin 22.x = macOS 13 (Ventura)
+  //   Darwin 23.x = macOS 14 (Sonoma) — 23.0=14.0, 23.2=14.2, 23.4=14.4 …
+  //   Darwin 24.x = macOS 15 (Sequoia)
+  // We require macOS 14.2 because CoreAudio Process Tap (AudioHardwareCreateProcessTap)
+  // was introduced in 14.2.
+  const release = os.release()
+  const parts   = release.split('.')
+  const major   = parseInt(parts[0] ?? '0', 10)
+  const minor   = parseInt(parts[1] ?? '0', 10)
+  const tooOld  = major < 23 || (major === 23 && minor < 2)
+  if (tooOld) {
     dialog.showErrorBox(
-      'Cornflake requires macOS 13 or later',
-      'Audio capture uses ScreenCaptureKit which is only available on macOS 13 (Ventura) and later.\n\nPlease upgrade macOS to use Cornflake.'
+      'Cornflake requires macOS 14.2 or later',
+      'Cornflake captures system audio with CoreAudio Process Tap, which is only available on macOS 14.2 (Sonoma) and later.\n\nPlease upgrade macOS to use Cornflake.'
     )
     app.quit()
   }

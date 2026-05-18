@@ -53,9 +53,8 @@
       "extendInfo": {
         "NSMicrophoneUsageDescription": "Cornflake needs microphone access to record your meetings.",
         "NSAudioCaptureUsageDescription": "Cornflake records system audio from your meetings so it can transcribe what other participants say.",
-        "NSScreenCaptureUsageDescription": "Cornflake records system audio (the other participants in your meetings) via Screen Recording.",
         "NSCalendarsUsageDescription": "Cornflake reads your calendar to know which meetings you are in.",
-        "LSMinimumSystemVersion": "13.0"
+        "LSMinimumSystemVersion": "14.2"
       }
     },
     "dmg": {

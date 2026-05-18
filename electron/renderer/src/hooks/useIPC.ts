@@ -27,7 +27,7 @@ export interface SpeakerAddedPayload {
 
 export type StartManualResult =
   | { ok: true;  meetingId: string; title: string }
-  | { ok: false; code: 'mic_denied' | 'screen_denied' | 'needs_restart' | 'capture_failed'; message: string }
+  | { ok: false; code: 'mic_denied' | 'audio_denied' | 'capture_failed'; message: string }
   | null
 
 export function useStartManual() {
