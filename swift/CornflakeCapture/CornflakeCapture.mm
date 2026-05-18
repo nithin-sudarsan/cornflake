@@ -181,17 +181,51 @@ static NSString* tapUIDString(AudioObjectID tapID) {
     return (__bridge_transfer NSString*)uidRef;
 }
 
+// Returns the UID string of the system's current default OUTPUT device
+// (i.e. the speakers / headphones the user is hearing audio through).
+// The aggregate device needs this as its main sub-device so the process tap
+// has a real audio stream to mirror — without it, the tap produces silence.
+static NSString* defaultOutputDeviceUID() {
+    AudioObjectID outDev = kAudioObjectUnknown;
+    UInt32 size = sizeof(outDev);
+    AudioObjectPropertyAddress devAddr = {
+        .mSelector = kAudioHardwarePropertyDefaultOutputDevice,
+        .mScope    = kAudioObjectPropertyScopeGlobal,
+        .mElement  = kAudioObjectPropertyElementMain,
+    };
+    OSStatus err = AudioObjectGetPropertyData(
+        kAudioObjectSystemObject, &devAddr, 0, NULL, &size, &outDev);
+    if (err != noErr || outDev == kAudioObjectUnknown) {
+        NSLog(@"[CornflakeCapture] defaultOutputDevice lookup failed: %d", (int)err);
+        return nil;
+    }
+
+    CFStringRef uidRef = NULL;
+    size = sizeof(uidRef);
+    AudioObjectPropertyAddress uidAddr = {
+        .mSelector = kAudioDevicePropertyDeviceUID,
+        .mScope    = kAudioObjectPropertyScopeGlobal,
+        .mElement  = kAudioObjectPropertyElementMain,
+    };
+    err = AudioObjectGetPropertyData(outDev, &uidAddr, 0, NULL, &size, &uidRef);
+    if (err != noErr || !uidRef) {
+        NSLog(@"[CornflakeCapture] defaultOutputDevice UID lookup failed: %d", (int)err);
+        return nil;
+    }
+    return (__bridge_transfer NSString*)uidRef;
+}
+
 // Create the process tap + aggregate device wrapper. Returns 0 on success and
 // writes the failure reason to errOut on failure.
 API_AVAILABLE(macos(14.2))
 static OSStatus setupSystemAudioTap(std::string& errOut) {
-    // Simplest possible CATapDescription: tap all system audio output as a
-    // stereo mixdown. No process filtering — that can be added back later
-    // once the basic creation path works. Always set the UUID explicitly;
-    // sample code shows several convenience inits leave it nil which then
-    // causes AudioHardwareCreateProcessTap to reject with !obj / 560947818.
+    // initStereoGlobalTapButExcludeProcesses:@[] explicitly means "tap all
+    // system audio, exclude no processes". Empty processes on the
+    // initStereoMixdownOfProcesses: variant is API-ambiguous — some macOS
+    // releases interpret it as "tap nothing" and produce silent captures.
+    // The global-tap variant is unambiguously "everything".
     CATapDescription* desc =
-        [[CATapDescription alloc] initStereoMixdownOfProcesses:@[]];
+        [[CATapDescription alloc] initStereoGlobalTapButExcludeProcesses:@[]];
     desc.UUID         = [NSUUID UUID];
     desc.name         = @"Cornflake System Audio";
     desc.privateTap   = YES;
@@ -223,9 +257,24 @@ static OSStatus setupSystemAudioTap(std::string& errOut) {
 
     NSString* aggUID = [NSString stringWithFormat:@"app.cornflake.mac.aggregate.%@",
                         [[NSUUID UUID] UUIDString]];
+
+    // The aggregate device needs a real audio device as its "main" sub-device
+    // for the process tap to have an audio stream to mirror. We use whatever
+    // the user is currently hearing audio through (default output). Without
+    // this, the tap delivers buffers full of zeros — silent but non-empty.
+    NSString* mainOutputUID = defaultOutputDeviceUID();
+    if (!mainOutputUID) {
+        AudioHardwareDestroyProcessTap(g_tapID);
+        g_tapID = kAudioObjectUnknown;
+        errOut = "AUDIO_DEFAULT_OUTPUT_LOOKUP_FAILED";
+        return -1;
+    }
+    NSLog(@"[CornflakeCapture] Default output device UID: %@", mainOutputUID);
+
     NSDictionary* aggDict = @{
         @kAudioAggregateDeviceNameKey:            @"Cornflake Aggregate",
         @kAudioAggregateDeviceUIDKey:             aggUID,
+        @kAudioAggregateDeviceMainSubDeviceKey:   mainOutputUID,
         @kAudioAggregateDeviceIsPrivateKey:       @YES,
         @kAudioAggregateDeviceIsStackedKey:       @NO,
         @kAudioAggregateDeviceTapAutoStartKey:    @YES,
@@ -400,9 +449,16 @@ static Napi::Value StartCapture(const Napi::CallbackInfo& info) {
         __block AVAudioConverter* sysConverter =
             [[AVAudioConverter alloc] initFromFormat:sysHwFmt toFormat:targetFmt];
 
+        __block uint64_t sysCallbackCount  = 0;
+        __block uint64_t sysSamplesWritten = 0;
+        __block double   sysPeakAbs        = 0.0;
+        __block uint64_t sysLastLogCount   = 0;
+
         [sysIn installTapOnBus:0 bufferSize:4096 format:sysHwFmt
                          block:^(AVAudioPCMBuffer* hwBuf, AVAudioTime*) {
             if (!g_capturing.load()) return;
+
+            sysCallbackCount++;
 
             double ratio = targetFmt.sampleRate / sysHwFmt.sampleRate;
             AVAudioFrameCount outFrames =
@@ -424,8 +480,25 @@ static Napi::Value StartCapture(const Napi::CallbackInfo& info) {
                      return nil;
                  }];
 
-            if (!cvtErr && outBuf.frameLength > 0 && outBuf.floatChannelData)
-                g_sysFile.writeSamples(outBuf.floatChannelData[0], outBuf.frameLength);
+            if (!cvtErr && outBuf.frameLength > 0 && outBuf.floatChannelData) {
+                const float* samples = outBuf.floatChannelData[0];
+                AVAudioFrameCount n = outBuf.frameLength;
+                for (AVAudioFrameCount i = 0; i < n; ++i) {
+                    float a = fabsf(samples[i]);
+                    if (a > sysPeakAbs) sysPeakAbs = a;
+                }
+                g_sysFile.writeSamples(samples, n);
+                sysSamplesWritten += n;
+            }
+
+            // Rate-limit: log every ~50 callbacks (~ once per few seconds at 4096 fs).
+            // Peak-abs near 0 = silence; > 0.001 = some signal; > 0.01 = clearly audible.
+            if (sysCallbackCount - sysLastLogCount >= 50) {
+                sysLastLogCount = sysCallbackCount;
+                NSLog(@"[CornflakeCapture] sys-tap: callbacks=%llu samplesWritten=%llu peakAbs=%.4f",
+                      sysCallbackCount, sysSamplesWritten, sysPeakAbs);
+                sysPeakAbs = 0.0;  // reset for next window
+            }
         }];
 
         NSError* sysEngineErr = nil;
