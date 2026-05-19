@@ -623,8 +623,6 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
                   {grpMeetings.map(meeting => {
                     const isHovered  = hoveredMeetingId === meeting.id
                     const isSelected = activeMeetingId === meeting.id
-                    const duration   = formatDuration(meeting.startMs, meeting.endMs)
-                    const meta       = duration ? `${duration}` : ''
                     return (
                       <div
                         key={meeting.id}
@@ -666,19 +664,13 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
                               </span>
                             )}
                           </div>
-                          {meta && (
-                            <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--color-text-muted)' }}>
-                              {meta}
-                            </p>
-                          )}
-                          {meeting.summaryPreview && (
+                          {meeting.participants.length > 0 && (
                             <p style={{
-                              margin: '3px 0 0', fontSize: 12,
+                              margin: '2px 0 0', fontSize: 11,
                               color: 'var(--color-text-muted)',
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                              opacity: 0.8,
                             }}>
-                              {meeting.summaryPreview}
+                              {meeting.participants.join(', ')}
                             </p>
                           )}
                         </button>

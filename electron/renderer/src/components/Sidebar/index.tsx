@@ -285,8 +285,8 @@ export default function Sidebar({
   return (
     <aside
       style={{
-        width:    collapsed ? 44 : 200,
-        minWidth: collapsed ? 44 : 200,
+        width:    collapsed ? 78 : 200,
+        minWidth: collapsed ? 78 : 200,
         // Transparent so the macOS NSVisualEffectView (vibrancy: 'sidebar') is
         // the only thing painting the sidebar background — that's what gives
         // the frosted-glass look. A tint here would just darken it back to

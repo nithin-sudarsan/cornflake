@@ -49,6 +49,32 @@ function formatUtteranceTime(ms: number): string {
   return `${m}:${sec}`
 }
 
+interface UtteranceLite {
+  id: string
+  text: string
+  startMs: number
+  speakerName: string | null
+}
+
+// Collapse consecutive utterances from the same speaker into a single bubble
+// group so the transcript reads like an iMessage thread instead of a row per
+// utterance with a repeated speaker label.
+function groupUtterances(utterances: UtteranceLite[]): Array<{
+  speakerName: string | null
+  items: UtteranceLite[]
+}> {
+  const groups: Array<{ speakerName: string | null; items: UtteranceLite[] }> = []
+  for (const u of utterances) {
+    const last = groups[groups.length - 1]
+    if (last && last.speakerName === u.speakerName) {
+      last.items.push(u)
+    } else {
+      groups.push({ speakerName: u.speakerName, items: [u] })
+    }
+  }
+  return groups
+}
+
 function nextWeekday(dayOfWeek: number): Date {
   const d = new Date()
   d.setHours(9, 0, 0, 0)
@@ -936,22 +962,73 @@ export default function MeetingDetail({ meetingId, onBack, onTasksApproved }: Me
                 Transcript
               </button>
               {showTranscript && (
-                <div style={{ marginTop: 12 }}>
-                  {detail.utterances.map(u => (
-                    <div key={u.id} style={{ display: 'flex', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--color-divider)' }}>
-                      <div style={{ flexShrink: 0, width: 72 }}>
-                        <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {u.speakerName ?? 'Unknown'}
-                        </p>
-                        <p style={{ margin: '2px 0 0', fontSize: 10, color: 'var(--color-text-muted)', opacity: 0.7 }}>
-                          {formatUtteranceTime(u.startMs)}
+                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {groupUtterances(detail.utterances).map((group, gIdx) => {
+                    const isSelf = group.speakerName === 'You'
+                    const lastStartMs = group.items[group.items.length - 1].startMs
+                    return (
+                      <div
+                        key={gIdx}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: isSelf ? 'flex-end' : 'flex-start',
+                        }}
+                      >
+                        {!isSelf && (
+                          <p style={{
+                            margin: '0 0 4px 12px',
+                            fontSize: 11, fontWeight: 600,
+                            color: 'var(--color-text-muted)',
+                          }}>
+                            {group.speakerName ?? 'Unknown'}
+                          </p>
+                        )}
+                        {group.items.map((u, i) => {
+                          const isFirst = i === 0
+                          const isLast  = i === group.items.length - 1
+                          // iMessage-style tail: tighten the corner closest to the
+                          // tail end on the first and last bubble of a group.
+                          const tightCorner = isSelf ? 'borderBottomRightRadius' : 'borderBottomLeftRadius'
+                          const radius: React.CSSProperties = {
+                            borderRadius: 16,
+                            ...(isLast ? { [tightCorner]: 6 } : {}),
+                            ...(isFirst && !isLast
+                              ? (isSelf
+                                  ? { borderBottomRightRadius: 6 }
+                                  : { borderBottomLeftRadius: 6 })
+                              : {}),
+                          }
+                          return (
+                            <div
+                              key={u.id}
+                              style={{
+                                maxWidth: '75%',
+                                padding: '8px 13px',
+                                marginTop: isFirst ? 0 : 3,
+                                fontSize: 13,
+                                lineHeight: 1.4,
+                                wordBreak: 'break-word',
+                                backgroundColor: isSelf ? '#0A84FF' : 'rgba(255,255,255,0.08)',
+                                color: isSelf ? '#FFFFFF' : 'var(--color-text-primary)',
+                                ...radius,
+                              }}
+                            >
+                              {u.text}
+                            </div>
+                          )
+                        })}
+                        <p style={{
+                          margin: '4px 12px 0',
+                          fontSize: 10,
+                          color: 'var(--color-text-muted)',
+                          opacity: 0.7,
+                        }}>
+                          {formatUtteranceTime(lastStartMs)}
                         </p>
                       </div>
-                      <p style={{ margin: 0, flex: 1, fontSize: 13, color: 'var(--color-text-primary)', lineHeight: 1.6 }}>
-                        {u.text}
-                      </p>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </>

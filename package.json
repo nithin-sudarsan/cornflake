@@ -50,12 +50,6 @@
       "entitlementsInherit": "build/entitlements.mac.plist",
       "target": [
         {
-          "target": "dmg",
-          "arch": [
-            "arm64"
-          ]
-        },
-        {
           "target": "zip",
           "arch": [
             "arm64"
@@ -68,9 +62,6 @@
         "NSCalendarsUsageDescription": "Cornflake reads your calendar to know which meetings you are in.",
         "LSMinimumSystemVersion": "14.2"
       }
-    },
-    "dmg": {
-      "writeUpdateInfo": true
     },
     "publish": [
       {

@@ -127,6 +127,7 @@ export interface PastMeeting {
   confirmedAt: number
   summaryPreview: string | null
   pendingTaskCount: number
+  participants: string[]
 }
 
 export interface MeetingDetailData {
