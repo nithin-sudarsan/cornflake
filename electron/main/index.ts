@@ -287,6 +287,19 @@ function createWindow(): void {
     title: 'Cornflake',
     icon: APP_ICON_PATH,
     resizable: true,
+    // macOS-only: enable NSVisualEffectView behind the window so the sidebar
+    // can render a translucent "glassy" background. The renderer's body bg is
+    // transparent; the main + right panels remain opaque (their own bg covers
+    // the vibrancy in those regions); the sidebar uses a low-alpha tint so the
+    // blur shows through. `visualEffectState: 'active'` keeps the blur visible
+    // even when the window is not focused.
+    ...(process.platform === 'darwin'
+      ? {
+          vibrancy: 'hud' as const,
+          visualEffectState: 'active' as const,
+          backgroundColor: '#00000000',
+        }
+      : {}),
   })
 
   // In packaged builds, dist/ is inside app.asar at the app root; in dev it's a sibling of electron/.
