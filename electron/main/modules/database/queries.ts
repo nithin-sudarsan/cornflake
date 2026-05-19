@@ -695,46 +695,64 @@ export function buildQueries(db: Database.Database) {
     _onDelete?.('tasks', taskId)
   }
 
+  type PastMeetingRow = {
+    id: string; title: string; start_ms: number; end_ms: number | null
+    confirmed_at: number; summary: string | null; pending_task_count: number
+    participant_names: string | null
+  }
+
+  function mapPastMeetingRow(r: PastMeetingRow): PastMeeting {
+    return {
+      id: r.id,
+      title: r.title,
+      startMs: r.start_ms,
+      endMs: r.end_ms,
+      confirmedAt: r.confirmed_at,
+      summaryPreview: extractSummaryPreview(r.summary),
+      pendingTaskCount: r.pending_task_count,
+      // Non-self speakers with a known name, deduped + sorted by the subquery.
+      participants: r.participant_names
+        ? r.participant_names.split('|').filter(Boolean)
+        : [],
+    }
+  }
+
   function getTrashedMeetings(): PastMeeting[] {
     return (db.prepare(`
       SELECT m.id, m.title, m.start_ms, m.end_ms, m.confirmed_at, m.summary,
-             COUNT(t.id) AS pending_task_count
+             COUNT(t.id) AS pending_task_count,
+             (SELECT GROUP_CONCAT(name, '|') FROM (
+                SELECT DISTINCT s.name AS name
+                FROM speakers s
+                WHERE s.meeting_id = m.id AND s.is_self = 0 AND s.name IS NOT NULL
+                ORDER BY s.name
+              )) AS participant_names
       FROM meetings m
       LEFT JOIN tasks t ON t.meeting_id = m.id AND t.status = 'awaiting_approval'
       WHERE m.deleted_at IS NOT NULL
       GROUP BY m.id
       ORDER BY m.deleted_at DESC
       LIMIT 20
-    `).all() as { id: string; title: string; start_ms: number; end_ms: number | null; confirmed_at: number; summary: string | null; pending_task_count: number }[]).map(r => ({
-      id: r.id,
-      title: r.title,
-      startMs: r.start_ms,
-      endMs: r.end_ms,
-      confirmedAt: r.confirmed_at,
-      summaryPreview: extractSummaryPreview(r.summary),
-      pendingTaskCount: r.pending_task_count,
-    }))
+    `).all() as PastMeetingRow[]).map(mapPastMeetingRow)
   }
 
   function getPastMeetings(): PastMeeting[] {
     return (db.prepare(`
       SELECT m.id, m.title, m.start_ms, m.end_ms, m.confirmed_at, m.summary,
-             COUNT(t.id) AS pending_task_count
+             COUNT(t.id) AS pending_task_count,
+             (SELECT GROUP_CONCAT(name, '|') FROM (
+                SELECT DISTINCT s.name AS name
+                FROM speakers s
+                WHERE s.meeting_id = m.id AND s.is_self = 0 AND s.name IS NOT NULL
+                ORDER BY s.name
+              )) AS participant_names
       FROM meetings m
       LEFT JOIN tasks t ON t.meeting_id = m.id AND t.status = 'awaiting_approval'
       WHERE m.end_ms IS NOT NULL AND m.summary IS NOT NULL AND m.deleted_at IS NULL
       GROUP BY m.id
       ORDER BY m.start_ms DESC
       LIMIT 20
-    `).all() as { id: string; title: string; start_ms: number; end_ms: number | null; confirmed_at: number; summary: string | null; pending_task_count: number }[]).map(r => ({
-      id: r.id,
-      title: r.title,
-      startMs: r.start_ms,
-      endMs: r.end_ms,
-      confirmedAt: r.confirmed_at,
-      summaryPreview: extractSummaryPreview(r.summary),
-      pendingTaskCount: r.pending_task_count,
-    }))
+    `).all() as PastMeetingRow[]).map(mapPastMeetingRow)
   }
 
   function extractSummaryPreview(summary: string | null): string | null {

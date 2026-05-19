@@ -87,6 +87,8 @@ export interface PastMeeting {
   confirmedAt: number
   summaryPreview: string | null
   pendingTaskCount: number
+  /** Non-self speaker names with a known label, deduped. */
+  participants: string[]
 }
 
 export interface TaskDetail {

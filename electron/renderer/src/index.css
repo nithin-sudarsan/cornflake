@@ -34,6 +34,8 @@ body {
   color: var(--color-text-primary);
   font-family: 'Mona Sans', Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  /* Tailwind's tracking-tight applied app-wide for a slightly denser typography. */
+  letter-spacing: -0.025em;
 }
 
 /* Custom scrollbars — the default Chromium scrollbar shows a light track on
