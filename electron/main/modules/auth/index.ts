@@ -105,6 +105,11 @@ function buildAuthUrl(redirectUri: string): string {
     client_id:     clientId,
     redirect_uri:  redirectUri,
     provider:      'GoogleOAuth',
+    // Force Google to re-show its consent screen so it always returns a refresh
+    // token. Without this, Google only issues a refresh_token on the user's
+    // very first consent — subsequent logins get an access_token only, and the
+    // calendar watcher silently dies 1 hour later with no recovery path.
+    prompt:        'consent',
   })
   return `https://api.workos.com/user_management/authorize?${params.toString()}`
 }
