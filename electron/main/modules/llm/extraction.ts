@@ -79,6 +79,29 @@ export async function inferSpeakersWithLLM(
 }
 
 // ---------------------------------------------------------------------------
+// Email → company inference. We use the email domain as a cheap proxy for
+// "what company does this person represent" — good enough for the LLM to use
+// as context ("X from Acme said …"). Free-mail providers don't carry that
+// signal, so we skip them and return null instead.
+// ---------------------------------------------------------------------------
+
+const FREE_EMAIL_DOMAINS = new Set([
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
+  'yahoo.com', 'yahoo.co.uk', 'icloud.com', 'me.com', 'mac.com',
+  'protonmail.com', 'proton.me', 'aol.com', 'gmx.com', 'gmx.de', 'fastmail.com',
+])
+
+function companyFromEmail(email: string | null | undefined): string | null {
+  if (!email) return null
+  const domain = email.split('@')[1]?.toLowerCase()
+  if (!domain || FREE_EMAIL_DOMAINS.has(domain)) return null
+  // basegraph.co → "Basegraph". Good enough as a rough display label.
+  const base = domain.split('.')[0]
+  if (!base) return null
+  return base.charAt(0).toUpperCase() + base.slice(1)
+}
+
+// ---------------------------------------------------------------------------
 // Transcript formatting (used when building the payload for /api/extract)
 // ---------------------------------------------------------------------------
 
@@ -174,7 +197,13 @@ export async function runExtractionPipeline(
   const result = await apiPost('/api/extract', {
     transcript:   transcriptArray,
     meetingTitle: meeting.title,
-    speakers:     speakers.map(s => ({ id: s.id, name: s.name, isSelf: s.isSelf })),
+    speakers:     speakers.map(s => ({
+      id:      s.id,
+      name:    s.name,
+      isSelf:  s.isSelf,
+      email:   s.email ?? null,
+      company: companyFromEmail(s.email),
+    })),
   })
 
   // Log the full raw response so we can see exactly what the backend returned
@@ -349,7 +378,13 @@ export async function regenerateTasksForMeeting(
   const result   = await apiPost('/api/extract', {
     transcript:   transcriptArray,
     meetingTitle: meeting.title,
-    speakers:     speakers.map(s => ({ id: s.id, name: s.name, isSelf: s.isSelf })),
+    speakers:     speakers.map(s => ({
+      id:      s.id,
+      name:    s.name,
+      isSelf:  s.isSelf,
+      email:   s.email ?? null,
+      company: companyFromEmail(s.email),
+    })),
   })
 
   const rawTasks: RawTask[] = (result?.tasks ?? [])

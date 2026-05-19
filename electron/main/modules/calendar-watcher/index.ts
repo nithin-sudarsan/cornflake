@@ -379,13 +379,40 @@ export function triggerPoll(): void {
 // Returns the payload sent to the renderer.
 // ---------------------------------------------------------------------------
 
-export function startManualRecording(): { meetingId: string; title: string } {
+export function startManualRecording(
+  opts?: { calendarEventId?: string },
+): { meetingId: string; title: string } {
+  const db = getDb()
+
+  // If the caller named a specific calendar event (e.g. the user clicked it in
+  // the Upcoming list), and we have that event cached, hydrate the meeting
+  // from it — same as the notification-triggered path. This is what brings
+  // attendee names + emails into the speakers table so the extraction prompt
+  // can use them as authoritative context.
+  if (opts?.calendarEventId) {
+    const event = _displayEventsCache.find(e => e.id === opts.calendarEventId)
+    if (event) {
+      const meeting = db.createMeeting(event.title, event.id)
+      db.createSelfSpeaker(meeting.id)
+
+      for (const attendee of event.attendees) {
+        const speakers = db.createSpeakers(meeting.id, [`calendar_${attendee.email}`])
+        if (speakers[0]) {
+          db.resolveSpeaker(speakers[0].id, attendee.name || attendee.email, 'high')
+          db.updateSpeakerEmail(speakers[0].id, attendee.email)
+        }
+      }
+      console.log(`[recording] manual start hydrated from calendar event "${event.title}" with ${event.attendees.length} attendee(s)`)
+      return { meetingId: meeting.id, title: meeting.title }
+    }
+    console.warn(`[recording] manual start: calendar event ${opts.calendarEventId} not in cache — falling back to generic title`)
+  }
+
   const now = new Date()
   const hh = now.getHours().toString().padStart(2, '0')
   const mm = now.getMinutes().toString().padStart(2, '0')
   const title = `Meeting, ${hh}:${mm}`
 
-  const db = getDb()
   const meeting = db.createMeeting(title)
   db.createSelfSpeaker(meeting.id)
 
