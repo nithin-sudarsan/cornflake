@@ -23,12 +23,16 @@ const SNACKBAR_MS      = 4000
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDeadline(deadlineMs: number | null, deadlineText: string | null): string | null {
+function formatDeadline(
+  deadlineMs: number | null,
+  deadlineText: string | null,
+): { text: string; overdue: boolean } | null {
   if (deadlineMs) {
-    return new Date(deadlineMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) +
+    const text = new Date(deadlineMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) +
       ', ' + new Date(deadlineMs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    return { text, overdue: deadlineMs < Date.now() }
   }
-  return deadlineText ?? null
+  return deadlineText ? { text: deadlineText, overdue: false } : null
 }
 
 function formatCompletedAt(ms: number): string {
@@ -675,8 +679,13 @@ export default function MainContent({ activeList, onMeetingSelect, onTaskSelect,
                   </button>
                 )}
                 {meta && (
-                  <p style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--color-text-muted)' }}>
-                    {meta}
+                  <p style={{
+                    margin: '2px 0 0',
+                    fontSize: 12,
+                    color: meta.overdue && !isCompletedList ? '#FF3B30' : 'var(--color-text-muted)',
+                    fontWeight: meta.overdue && !isCompletedList ? 500 : 400,
+                  }}>
+                    {meta.text}
                   </p>
                 )}
               </div>
