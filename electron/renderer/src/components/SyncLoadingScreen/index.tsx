@@ -9,7 +9,9 @@ export default function SyncLoadingScreen() {
       style={{
         width:           '100vw',
         height:          '100vh',
-        backgroundColor: 'var(--color-bg-deep)',
+        // Transparent so the window vibrancy ('hud') shows through, matching
+        // the glassy sidebar.
+        backgroundColor: 'transparent',
         display:         'flex',
         flexDirection:   'column',
         alignItems:      'center',

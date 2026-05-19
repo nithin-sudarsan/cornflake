@@ -27,7 +27,8 @@ export default function LoginScreen() {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: 'var(--color-bg-deep)',
+        // Transparent so the window vibrancy ('hud') shows through.
+        backgroundColor: 'transparent',
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}
     >

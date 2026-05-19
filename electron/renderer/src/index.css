@@ -7,8 +7,8 @@
   --color-black: #000000;
   --color-text-muted: #8A909B;
   --color-divider: rgba(138, 144, 155, 0.6);
-  --color-bg-deep: #151515;
-  --color-bg-surface: #262626;
+  --color-bg-deep: #0F0F0F;
+  --color-bg-surface: #1A1A1A;
 }
 
 *,
@@ -26,8 +26,32 @@ body,
 }
 
 body {
-  background-color: var(--color-bg-surface);
+  /* Transparent so the macOS NSVisualEffectView (vibrancy: 'sidebar' set on the
+     BrowserWindow) can render behind the renderer. The sidebar is the only
+     panel without a solid background, so it's the only region where the
+     vibrancy actually shows. */
+  background-color: transparent;
   color: var(--color-text-primary);
   font-family: 'Mona Sans', Inter, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbars — the default Chromium scrollbar shows a light track on
+   transparent backgrounds, which clashes with the dark UI. Replace with a
+   transparent track + thin translucent thumb. Applies app-wide. */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  background-color: transparent;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background-color: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.22);
 }

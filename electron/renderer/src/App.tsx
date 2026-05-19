@@ -37,6 +37,17 @@ export default function App() {
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId]       = useState<string | null>(null)
   const [notesRefreshKey, setNotesRefreshKey] = useState(0)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('cornflake-sidebar-collapsed') === 'true' } catch { return false }
+  })
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem('cornflake-sidebar-collapsed', String(next)) } catch {}
+      return next
+    })
+  }, [])
 
   // Sync gating — the UI does not render real content until the first
   // pullFromCloud() resolves (or the 10s timeout fires).
@@ -268,7 +279,10 @@ export default function App() {
           display: 'flex',
           height: '100vh',
           overflow: 'hidden',
-          backgroundColor: 'var(--color-bg-surface)',
+          // Transparent so the window vibrancy shows through behind the
+          // sidebar. MainContent + RightPanel each paint their own opaque
+          // background, so the vibrancy only shows in the sidebar region.
+          backgroundColor: 'transparent',
         }}
       >
         <Sidebar
@@ -280,7 +294,10 @@ export default function App() {
           onListDeleted={handleListDeleted}
           userProfile={userProfile}
           dataVersion={dataVersion}
+          collapsed={sidebarCollapsed}
+          onToggleCollapsed={toggleSidebar}
         />
+
 
         {mainView === 'list' && (
           <MainContent
