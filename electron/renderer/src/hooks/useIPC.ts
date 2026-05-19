@@ -31,8 +31,8 @@ export type StartManualResult =
   | null
 
 export function useStartManual() {
-  return useCallback(async (): Promise<StartManualResult> => {
-    return window.electronAPI.startManual() as Promise<StartManualResult>
+  return useCallback(async (opts?: { calendarEventId?: string }): Promise<StartManualResult> => {
+    return window.electronAPI.startManual(opts) as Promise<StartManualResult>
   }, [])
 }
 

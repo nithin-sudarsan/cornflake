@@ -20,7 +20,7 @@ interface ElectronAPI {
   // Renderer → Main (invoke)
   rendererReady: () => Promise<null>
   ackProcessingComplete: () => void
-  startManual: () => Promise<
+  startManual: (opts?: { calendarEventId?: string }) => Promise<
     | { ok: true;  meetingId: string; title: string }
     | { ok: false; code: 'mic_denied' | 'audio_denied' | 'capture_failed'; message: string }
     | null

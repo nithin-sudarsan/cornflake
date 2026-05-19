@@ -163,7 +163,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // Module 3 — Recording trigger (manual quick-start)
   // ---------------------------------------------------------------------------
 
-  ipcMain.handle(RENDERER_CHANNELS.RECORDING_START_MANUAL, async () => {
+  ipcMain.handle(RENDERER_CHANNELS.RECORDING_START_MANUAL, async (_e, opts?: { calendarEventId?: string }) => {
     // 1. Gate on Microphone permission only. If 'not-determined', this fires
     //    the macOS system prompt and waits for the user's answer. If still not
     //    granted afterwards, abort BEFORE starting the audio addon — the
@@ -208,7 +208,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       }
     }
 
-    const payload = startManualRecording()
+    const payload = startManualRecording({ calendarEventId: opts?.calendarEventId })
     _activeMeetingId = payload.meetingId
     mainWindow.webContents.send(MAIN_CHANNELS.RECORDING_STARTED, payload)
     _setTrayRecording(payload)

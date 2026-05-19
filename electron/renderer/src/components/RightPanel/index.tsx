@@ -220,11 +220,11 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
   // Handlers
   // -------------------------------------------------------------------------
 
-  async function handleStartListening() {
+  async function handleStartListening(calendarEventId?: string) {
     setIsStarting(true)
     setStartError(null)
     try {
-      const result = await startManual()
+      const result = await startManual(calendarEventId ? { calendarEventId } : undefined)
       if (result && result.ok === false) {
         // Inline error — no modal. The button area shows the message and a
         // deep-link to the relevant System Settings pane.
@@ -394,7 +394,7 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
       {/* ---- Start listening / active recording ---- */}
       {appState === 'idle' ? (
         <>
-          <button style={btnPrimaryStyle} onClick={handleStartListening} disabled={isStarting}>
+          <button style={btnPrimaryStyle} onClick={() => handleStartListening()} disabled={isStarting}>
             {isStarting ? 'Starting…' : 'Start listening'}
           </button>
           {startError && (
@@ -579,7 +579,7 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
                   return (
                     <button
                       key={event.id}
-                      onClick={eligible ? handleStartListening : undefined}
+                      onClick={eligible ? () => handleStartListening(event.id) : undefined}
                       disabled={!eligible}
                       title={eligible ? undefined : 'Available to start within 10 minutes of the event'}
                       style={{

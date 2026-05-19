@@ -73,7 +73,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Renderer → Main
   rendererReady:      ()                                          => ipcRenderer.invoke(CH.RENDERER_READY),
   ackProcessingComplete: ()                                       => ipcRenderer.send(CH.PROCESSING_ACK),
-  startManual:      ()                                          => ipcRenderer.invoke(CH.START_MANUAL),
+  startManual:      (opts?: { calendarEventId?: string })       => ipcRenderer.invoke(CH.START_MANUAL, opts),
   stopRecording:    ()                                          => ipcRenderer.invoke(CH.STOP),
   discardRecording: ()                                          => ipcRenderer.invoke(CH.DISCARD),
   updateTitle:      (payload: { meetingId: string; title: string }) => ipcRenderer.invoke(CH.UPDATE_TITLE, payload),
