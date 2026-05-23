@@ -35,6 +35,11 @@ import {
   sendDisplayEventsToRenderer,
   triggerPoll,
 } from './modules/calendar-watcher'
+import {
+  startMeetingAppWatcher,
+  stopMeetingAppWatcher,
+  setMeetingAppWatcherRecordingState,
+} from './modules/meeting-app-watcher'
 import { handleCallback, stopCallbackServer } from './modules/auth'
 import { MAIN_CHANNELS } from './ipc/types'
 
@@ -250,6 +255,8 @@ export function setTrayAuthState(authed: boolean): void {
 export function setTrayRecordingState(payload: { meetingId: string; title: string } | null): void {
   _trayRecording = payload
   rebuildTrayMenu()
+  // Suppress meeting-app launch notifications while we're already recording.
+  setMeetingAppWatcherRecordingState(payload !== null)
 }
 
 function createTray(): void {
@@ -375,6 +382,11 @@ app.whenReady().then(async () => {
     // Update tray label whenever the event cache refreshes
     setOnEventsUpdated(updateTrayLabel)
 
+    // Watch for known meeting apps launching (Zoom, Teams, WhatsApp, etc.)
+    // and prompt the user to start listening. Independent of the calendar
+    // watcher — catches ad-hoc meetings without a calendar invite.
+    startMeetingAppWatcher(mainWindow)
+
     // Calendar watcher start moved to the renderer:ready IPC handler.
     // This ensures the renderer is mounted and listening for CALENDAR_EVENTS_UPDATED
     // before the watcher's first fetch fires.
@@ -421,6 +433,7 @@ app.on('before-quit', () => {
   if (_trayLabelTimer) clearInterval(_trayLabelTimer)
   stopCallbackServer()
   stopCalendarWatcher()
+  stopMeetingAppWatcher()
   stopUpdater()
   closeDatabase()
 })
