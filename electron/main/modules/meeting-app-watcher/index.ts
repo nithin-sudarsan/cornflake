@@ -2,6 +2,7 @@ import { BrowserWindow, Notification } from 'electron'
 import { execFile } from 'child_process'
 import { MAIN_CHANNELS } from '../../ipc/types'
 import { isAuthenticated } from '../auth'
+import { getMicInputPIDs } from '../audio-capture'
 
 // ---------------------------------------------------------------------------
 // Meeting-app watcher
@@ -33,6 +34,12 @@ const POLL_INTERVAL_MS = 15 * 1000
 // for the same app until this cooldown elapses — keeps a flickering app from
 // spamming.
 const RENOTIFY_COOLDOWN_MS = 10 * 60 * 1000
+// PIDs we treat as Cornflake itself (and therefore ignore in mic-input
+// detection). The current process PID covers the main; the audio capture
+// runs in-process so we only need our own PID.
+const SELF_PID = process.pid
+// Mic-activity cooldown key — used in _lastNotifiedAt alongside app labels.
+const MIC_ACTIVITY_KEY = '__mic_activity__'
 
 let _pollTimer: ReturnType<typeof setInterval> | null = null
 let _mainWindow: BrowserWindow | null = null
@@ -44,6 +51,9 @@ const _lastNotifiedAt = new Map<string, number>()
 // Set by the main process when a recording is active. We skip notifications
 // while recording — the user is already capturing audio.
 let _recordingActive = false
+// PIDs that had mic input on the *previous* tick. We only fire a mic-activity
+// notification on a transition from no-other-input → some-other-input.
+let _previouslyMicInputPIDs = new Set<number>()
 
 export function setMeetingAppWatcherRecordingState(active: boolean): void {
   _recordingActive = active
@@ -75,6 +85,47 @@ function detectMeetingApps(procNames: string[]): Set<string> {
     }
   }
   return seen
+}
+
+// Look up a process name for a PID. Used to label the mic-activity notification
+// ("Google Chrome is using the microphone — start listening?"). Best-effort —
+// falls back to a generic label if the lookup fails.
+function getProcessName(pid: number): Promise<string | null> {
+  return new Promise(resolve => {
+    execFile('ps', ['-p', String(pid), '-o', 'comm='], (err, stdout) => {
+      if (err) { resolve(null); return }
+      const raw = stdout.trim()
+      if (!raw) { resolve(null); return }
+      // ps -o comm= prints a full path; take the basename.
+      const basename = raw.split('/').pop() ?? raw
+      resolve(basename)
+    })
+  })
+}
+
+function fireMicActivityNotification(processLabel: string): void {
+  const notification = new Notification({
+    title: `${processLabel} is using the microphone`,
+    body: 'Looks like a call. Start listening with Cornflake?',
+    actions: [
+      { type: 'button', text: 'Start listening' },
+      { type: 'button', text: 'Skip' },
+    ],
+    closeButtonText: 'Skip',
+  })
+
+  const start = () => {
+    if (!_mainWindow) return
+    _mainWindow.show()
+    _mainWindow.webContents.send(MAIN_CHANNELS.TRAY_REQUEST_START)
+  }
+
+  notification.on('click', start)
+  notification.on('action', (_e, index) => {
+    if (index === 0) start()
+  })
+
+  notification.show()
 }
 
 function fireMeetingAppNotification(label: string): void {
@@ -128,6 +179,30 @@ async function poll(): Promise<void> {
   }
 
   _previouslySeen = currentlyRunning
+
+  // ── Mic-input detection ──────────────────────────────────────────────────
+  // Catches meetings the process scan misses — most importantly browser-based
+  // Google Meet / Zoom Web, since the browser process is always running but
+  // only opens the mic when a call starts.
+  const micPidsArr = getMicInputPIDs().filter(pid => pid !== SELF_PID)
+  const micPids = new Set(micPidsArr)
+
+  // Fire when we transition from "nobody else using mic" → "someone is".
+  const wasAnyoneUsing = _previouslyMicInputPIDs.size > 0
+  const isAnyoneUsing  = micPids.size > 0
+  if (isAnyoneUsing && !wasAnyoneUsing) {
+    const lastFired = _lastNotifiedAt.get(MIC_ACTIVITY_KEY) ?? 0
+    const cooledDown = now - lastFired >= RENOTIFY_COOLDOWN_MS
+    if (cooledDown && !_recordingActive) {
+      // The "primary" mic user is just the first PID in the list; if name
+      // lookup fails we fall back to a generic label.
+      const firstPid = micPidsArr[0]!
+      const name = await getProcessName(firstPid)
+      _lastNotifiedAt.set(MIC_ACTIVITY_KEY, now)
+      fireMicActivityNotification(name ?? 'An app')
+    }
+  }
+  _previouslyMicInputPIDs = micPids
 }
 
 export function startMeetingAppWatcher(mainWindow: BrowserWindow): void {
@@ -142,6 +217,9 @@ export function startMeetingAppWatcher(mainWindow: BrowserWindow): void {
   void listRunningProcesses().then(procs => {
     _previouslySeen = detectMeetingApps(procs)
   })
+  // Same for mic input — if a call is already in progress at app launch we
+  // don't want to fire a "start listening?" prompt immediately.
+  _previouslyMicInputPIDs = new Set(getMicInputPIDs().filter(pid => pid !== SELF_PID))
 
   _pollTimer = setInterval(() => { void poll() }, POLL_INTERVAL_MS)
 }
@@ -152,5 +230,6 @@ export function stopMeetingAppWatcher(): void {
     _pollTimer = null
   }
   _previouslySeen = new Set()
+  _previouslyMicInputPIDs = new Set()
   _lastNotifiedAt.clear()
 }

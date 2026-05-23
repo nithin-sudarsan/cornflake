@@ -16,6 +16,7 @@ const addonPath = app.isPackaged
 const addon = require(addonPath) as {
   startCapture: (cb: (err: string | null) => void) => void
   stopCapture:  (cb: (err: string | null, result: { micPath: string; systemAudioPath: string } | null) => void) => void
+  getMicInputPIDs?: () => number[]
 }
 
 export interface AudioPaths {
@@ -30,6 +31,19 @@ export function startCapture(): Promise<void> {
       else resolve()
     })
   })
+}
+
+// Returns POSIX PIDs of every process currently reading from the microphone.
+// Used by the meeting-app watcher to detect browser-based meetings. Returns
+// an empty array if the native function isn't available (older addon build).
+export function getMicInputPIDs(): number[] {
+  if (!addon.getMicInputPIDs) return []
+  try {
+    return addon.getMicInputPIDs()
+  } catch (err) {
+    console.error('[audio-capture] getMicInputPIDs failed:', (err as Error).message)
+    return []
+  }
 }
 
 export function stopCapture(): Promise<AudioPaths> {

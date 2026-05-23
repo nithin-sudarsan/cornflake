@@ -1388,11 +1388,77 @@ static Napi::Value StopCapture(const Napi::CallbackInfo& info) {
     return env.Undefined();
 }
 
+// ─── Mic-input PID enumeration ───────────────────────────────────────────────
+//
+// Returns the POSIX PIDs of every audio process that currently has input
+// running (i.e. is actively reading from the microphone). Built on top of
+// CoreAudio's kAudioHardwarePropertyProcessObjectList +
+// kAudioProcessPropertyIsRunningInput, which were introduced in macOS 14.2.
+//
+// Used by the meeting-app watcher to detect browser-based meetings (Google
+// Meet, Zoom Web) that don't show up in the native-app process list.
+
+static Napi::Array GetMicInputPIDs(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    Napi::Array result = Napi::Array::New(env);
+
+    if (@available(macOS 14.2, *)) {
+        // Fetch the size of the process-object list, then read it.
+        AudioObjectPropertyAddress listAddr = {
+            .mSelector = kAudioHardwarePropertyProcessObjectList,
+            .mScope    = kAudioObjectPropertyScopeGlobal,
+            .mElement  = kAudioObjectPropertyElementMain,
+        };
+        UInt32 listSize = 0;
+        OSStatus err = AudioObjectGetPropertyDataSize(
+            kAudioObjectSystemObject, &listAddr, 0, NULL, &listSize);
+        if (err != noErr || listSize == 0) return result;
+
+        std::vector<AudioObjectID> procObjs(listSize / sizeof(AudioObjectID));
+        err = AudioObjectGetPropertyData(
+            kAudioObjectSystemObject, &listAddr,
+            0, NULL, &listSize, procObjs.data());
+        if (err != noErr) return result;
+
+        uint32_t outIdx = 0;
+        for (AudioObjectID procObj : procObjs) {
+            // Is this process actively reading from an input device?
+            AudioObjectPropertyAddress runAddr = {
+                .mSelector = kAudioProcessPropertyIsRunningInput,
+                .mScope    = kAudioObjectPropertyScopeGlobal,
+                .mElement  = kAudioObjectPropertyElementMain,
+            };
+            UInt32 isRunning = 0;
+            UInt32 size = sizeof(isRunning);
+            err = AudioObjectGetPropertyData(procObj, &runAddr,
+                                             0, NULL, &size, &isRunning);
+            if (err != noErr || isRunning == 0) continue;
+
+            // Translate the audio process object back to a POSIX PID.
+            AudioObjectPropertyAddress pidAddr = {
+                .mSelector = kAudioProcessPropertyPID,
+                .mScope    = kAudioObjectPropertyScopeGlobal,
+                .mElement  = kAudioObjectPropertyElementMain,
+            };
+            pid_t pid = 0;
+            size = sizeof(pid);
+            err = AudioObjectGetPropertyData(procObj, &pidAddr,
+                                             0, NULL, &size, &pid);
+            if (err != noErr || pid <= 0) continue;
+
+            result.Set(outIdx++, Napi::Number::New(env, (double)pid));
+        }
+    }
+
+    return result;
+}
+
 // ─── Module init ─────────────────────────────────────────────────────────────
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
-    exports.Set("startCapture", Napi::Function::New(env, StartCapture));
-    exports.Set("stopCapture",  Napi::Function::New(env, StopCapture));
+    exports.Set("startCapture",     Napi::Function::New(env, StartCapture));
+    exports.Set("stopCapture",      Napi::Function::New(env, StopCapture));
+    exports.Set("getMicInputPIDs",  Napi::Function::New(env, GetMicInputPIDs));
     return exports;
 }
 
