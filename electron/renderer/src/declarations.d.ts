@@ -79,6 +79,7 @@ interface ElectronAPI {
   approveWithLists: (payload: { approvals: { id: string; listName: string }[]; dismissedIds: string[] }) => Promise<void>
   openMicSettings: () => Promise<null>
   openScreenSettings: () => Promise<null>
+  openExternal: (url: string) => Promise<null>
   relaunchApp: () => Promise<null>
   checkForUpdates: () => Promise<null>
   installUpdate: () => Promise<null>

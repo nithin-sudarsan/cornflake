@@ -572,21 +572,30 @@ export default function RightPanel({ onMeetingSelect, onCurrentMeetingDeleted, o
                 <p style={sectionHeaderStyle}>{label}</p>
                 {events.map(event => {
                   const eligible = isStartEligible(event)
+                  const hasLink = !!event.meetingLink
+                  const clickable = eligible || hasLink
                   const attendeeLabel =
                     event.attendees.length === 0
                       ? 'No attendees'
                       : `${event.attendees.length} attendee${event.attendees.length !== 1 ? 's' : ''}`
+                  const tooltip = eligible
+                    ? hasLink ? 'Open meeting link and start listening' : undefined
+                    : hasLink ? 'Open meeting link' : 'Available to start within 10 minutes of the event'
+                  const handleClick = () => {
+                    if (hasLink) window.electronAPI.openExternal(event.meetingLink!)
+                    if (eligible) void handleStartListening(event.id)
+                  }
                   return (
                     <button
                       key={event.id}
-                      onClick={eligible ? () => handleStartListening(event.id) : undefined}
-                      disabled={!eligible}
-                      title={eligible ? undefined : 'Available to start within 10 minutes of the event'}
+                      onClick={clickable ? handleClick : undefined}
+                      disabled={!clickable}
+                      title={tooltip}
                       style={{
                         display: 'block', width: '100%', padding: '4px 0',
                         background: 'none', border: 'none',
-                        cursor: eligible ? 'pointer' : 'default',
-                        textAlign: 'left', opacity: eligible ? 1 : 0.4,
+                        cursor: clickable ? 'pointer' : 'default',
+                        textAlign: 'left', opacity: eligible ? 1 : hasLink ? 0.7 : 0.4,
                         marginBottom: 12, fontFamily: 'inherit',
                       }}
                     >
