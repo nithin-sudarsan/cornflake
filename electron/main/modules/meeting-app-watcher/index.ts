@@ -87,26 +87,10 @@ function detectMeetingApps(procNames: string[]): Set<string> {
   return seen
 }
 
-// Look up a process name for a PID. Used to label the mic-activity notification
-// ("Google Chrome is using the microphone — start listening?"). Best-effort —
-// falls back to a generic label if the lookup fails.
-function getProcessName(pid: number): Promise<string | null> {
-  return new Promise(resolve => {
-    execFile('ps', ['-p', String(pid), '-o', 'comm='], (err, stdout) => {
-      if (err) { resolve(null); return }
-      const raw = stdout.trim()
-      if (!raw) { resolve(null); return }
-      // ps -o comm= prints a full path; take the basename.
-      const basename = raw.split('/').pop() ?? raw
-      resolve(basename)
-    })
-  })
-}
-
-function fireMicActivityNotification(processLabel: string): void {
+function fireMicActivityNotification(): void {
   const notification = new Notification({
-    title: `${processLabel} is using the microphone`,
-    body: 'Looks like a call. Start listening with Cornflake?',
+    title: 'Looks like a call is in progress',
+    body: 'Start listening with Cornflake?',
     actions: [
       { type: 'button', text: 'Start listening' },
       { type: 'button', text: 'Skip' },
@@ -194,12 +178,8 @@ async function poll(): Promise<void> {
     const lastFired = _lastNotifiedAt.get(MIC_ACTIVITY_KEY) ?? 0
     const cooledDown = now - lastFired >= RENOTIFY_COOLDOWN_MS
     if (cooledDown && !_recordingActive) {
-      // The "primary" mic user is just the first PID in the list; if name
-      // lookup fails we fall back to a generic label.
-      const firstPid = micPidsArr[0]!
-      const name = await getProcessName(firstPid)
       _lastNotifiedAt.set(MIC_ACTIVITY_KEY, now)
-      fireMicActivityNotification(name ?? 'An app')
+      fireMicActivityNotification()
     }
   }
   _previouslyMicInputPIDs = micPids
