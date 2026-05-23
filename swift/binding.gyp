@@ -23,7 +23,8 @@
           "-framework AVFoundation",
           "-framework CoreAudio",
           "-framework Foundation",
-          "-framework CoreMedia"
+          "-framework CoreMedia",
+          "-framework AppKit"
         ]
       },
       "conditions": [["OS=='mac'", {}]]
