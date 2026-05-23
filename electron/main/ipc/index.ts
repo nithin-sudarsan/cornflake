@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow } from 'electron'
+import { app, ipcMain, BrowserWindow, shell } from 'electron'
 import { RENDERER_CHANNELS, MAIN_CHANNELS } from './types'
 import { getDb } from '../modules/database'
 import {
@@ -227,6 +227,18 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle(RENDERER_CHANNELS.PERMISSIONS_OPEN_SCREEN, async () => {
     openScreenSettings()
+    return null
+  })
+
+  // Open an arbitrary URL in the user's default browser. Only http(s) is
+  // accepted — anything else (file://, custom schemes) is rejected so a stray
+  // meetingLink can't be used to launch local apps.
+  ipcMain.handle(RENDERER_CHANNELS.SHELL_OPEN_EXTERNAL, async (_e, url: string) => {
+    if (typeof url !== 'string') return null
+    if (!/^https?:\/\//i.test(url)) return null
+    shell.openExternal(url).catch(err => {
+      console.error('[ipc] shell.openExternal failed:', err)
+    })
     return null
   })
 

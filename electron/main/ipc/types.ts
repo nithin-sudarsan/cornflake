@@ -69,6 +69,7 @@ export const RENDERER_CHANNELS = {
   TASKS_APPROVE_WITH_LISTS:    'tasks:approveWithLists',
   PERMISSIONS_OPEN_MIC:        'permissions:openMicSettings',
   PERMISSIONS_OPEN_SCREEN:     'permissions:openScreenSettings',
+  SHELL_OPEN_EXTERNAL:         'shell:openExternal',
   APP_RELAUNCH:                'app:relaunch',
   UPDATE_CHECK:                'update:check',
   UPDATE_INSTALL:              'update:install',
