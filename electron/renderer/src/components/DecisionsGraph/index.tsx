@@ -15,6 +15,7 @@ import { useGetAllDecisions } from '../../hooks/useIPC'
 
 interface DecisionsGraphProps {
   onDecisionSelect: (id: string) => void
+  onBack: () => void
   dataVersion?: number
 }
 
@@ -47,7 +48,7 @@ function radiusForConfidence(c: GraphNode['confidence']): number {
   return 6
 }
 
-export default function DecisionsGraph({ onDecisionSelect, dataVersion }: DecisionsGraphProps) {
+export default function DecisionsGraph({ onDecisionSelect, onBack, dataVersion }: DecisionsGraphProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const svgRef       = useRef<SVGSVGElement>(null)
   const simRef       = useRef<Simulation<GraphNode, GraphLink> | null>(null)
@@ -184,8 +185,30 @@ export default function DecisionsGraph({ onDecisionSelect, dataVersion }: Decisi
         zIndex: 2,
       } as React.CSSProperties} />
 
+      {/* Back — wrapped in a non-pointer-events container with the button itself
+          re-enabling clicks, so the title block below can stay pointer-events:none
+          while remaining a sibling. */}
+      <button
+        onClick={onBack}
+        style={{
+          position: 'absolute', top: 36, left: 24,
+          display: 'flex', alignItems: 'center', gap: 6,
+          background: 'none', border: 'none', cursor: 'pointer',
+          color: 'var(--color-text-muted)', fontSize: 13,
+          padding: 0, fontFamily: 'inherit',
+          zIndex: 2,
+        }}
+        onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+        onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-muted)')}
+      >
+        <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
+          <path d="M6 1L1 6L6 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+        Reminders
+      </button>
+
       <div style={{
-        position: 'absolute', top: 36, left: 24,
+        position: 'absolute', top: 64, left: 24,
         fontSize: 22, fontWeight: 600, color: 'var(--color-white)',
         zIndex: 1, pointerEvents: 'none',
       }}>

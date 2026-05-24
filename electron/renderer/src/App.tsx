@@ -350,6 +350,7 @@ export default function App() {
         {mainView === 'decisions-graph' && (
           <DecisionsGraph
             onDecisionSelect={handleDecisionSelect}
+            onBack={() => handleListSelect('Reminders')}
             dataVersion={dataVersion}
           />
         )}
