@@ -3,7 +3,7 @@ import Sidebar from './components/Sidebar'
 import MainContent from './components/MainContent'
 import MeetingDetail from './components/MeetingDetail'
 import ReminderDetail from './components/ReminderDetail'
-import DecisionsList from './components/DecisionsList'
+import DecisionsGraph from './components/DecisionsGraph'
 import DecisionDetail from './components/DecisionDetail'
 import { DECISIONS_VIEW } from './components/Sidebar'
 import ProcessingScreen from './components/ProcessingScreen'
@@ -15,7 +15,7 @@ import SyncLoadingScreen from './components/SyncLoadingScreen'
 import type { ListRecord, ProcessingCompletePayload } from './hooks/useIPC'
 import { useOnProcessingComplete } from './hooks/useIPC'
 
-type MainView  = 'list' | 'processing' | 'meeting-detail' | 'reminder-detail' | 'decisions-list' | 'decision-detail'
+type MainView  = 'list' | 'processing' | 'meeting-detail' | 'reminder-detail' | 'decisions-graph' | 'decision-detail'
 type AuthState = 'loading' | 'unauthenticated' | 'authenticated'
 type SyncState = 'idle' | 'pulling' | 'ready'
 
@@ -210,7 +210,7 @@ export default function App() {
     setSelectedMeetingId(null)
     setSelectedTaskId(null)
     setSelectedDecisionId(null)
-    setMainView(name === DECISIONS_VIEW ? 'decisions-list' : 'list')
+    setMainView(name === DECISIONS_VIEW ? 'decisions-graph' : 'list')
   }, [])
 
   const handleDecisionSelect = useCallback((id: string) => {
@@ -220,7 +220,7 @@ export default function App() {
 
   const handleDecisionDeleted = useCallback(() => {
     setSelectedDecisionId(null)
-    setMainView('decisions-list')
+    setMainView('decisions-graph')
   }, [])
 
   const handleListCreated = useCallback((list: ListRecord) => {
@@ -259,7 +259,7 @@ export default function App() {
     setSelectedMeetingId(null)
     setSelectedTaskId(null)
     setSelectedDecisionId(null)
-    setMainView(activeList === DECISIONS_VIEW ? 'decisions-list' : 'list')
+    setMainView(activeList === DECISIONS_VIEW ? 'decisions-graph' : 'list')
   }, [activeList])
 
   // Show nothing while we check the session (avoids a flash of login screen)
@@ -347,8 +347,8 @@ export default function App() {
             onDecisionSelect={handleDecisionSelect}
           />
         )}
-        {mainView === 'decisions-list' && (
-          <DecisionsList
+        {mainView === 'decisions-graph' && (
+          <DecisionsGraph
             onDecisionSelect={handleDecisionSelect}
             dataVersion={dataVersion}
           />

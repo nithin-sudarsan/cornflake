@@ -13,10 +13,9 @@ import {
 // Only Reminders is a truly permanent default — never shown with a delete icon.
 const REMINDERS_LIST = { name: 'Reminders', iconBg: '#1A5CE6', iconChar: 'R' }
 
-// Decisions is a permanent sidebar entry. It's not backed by a tasks list —
-// the sentinel name routes MainContent to render the DecisionsList view.
+// Decisions is reached via the graph icon in the header, not a list row. The
+// sentinel name keeps the view-routing key out of the user list namespace.
 export const DECISIONS_VIEW = '__decisions__'
-const DECISIONS_ROW = { iconBg: '#8B5CF6', iconChar: 'D' }
 
 // Completed is permanent and always last.
 const COMPLETED_LIST = {
@@ -350,6 +349,43 @@ export default function Sidebar({
             </svg>
           </button>
         )}
+        {/* Graph view — opens the decisions graph (obsidian-style force
+            layout). Lives next to the collapse + new-list buttons; treated
+            as a sibling navigation entry rather than a list row. */}
+        <button
+          onClick={() => onListSelect(DECISIONS_VIEW)}
+          title="Decisions graph"
+          aria-label="Decisions graph"
+          style={{
+            background: activeList === DECISIONS_VIEW ? 'rgba(255,255,255,0.06)' : 'none',
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+            color: activeList === DECISIONS_VIEW
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-muted)',
+            padding: collapsed ? 0 : '2px 6px 0 4px',
+            width: collapsed ? 32 : 'auto',
+            height: collapsed ? 28 : 'auto',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'inherit',
+            WebkitAppRegion: 'no-drag',
+          } as React.CSSProperties}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+          onMouseLeave={e => {
+            if (activeList !== DECISIONS_VIEW) {
+              e.currentTarget.style.color = 'var(--color-text-muted)'
+            }
+          }}
+        >
+          {/* Three-node graph icon — small triangle of circles connected by lines */}
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <circle cx="3" cy="11" r="1.6" fill="currentColor" />
+            <circle cx="11" cy="11" r="1.6" fill="currentColor" />
+            <circle cx="7" cy="3" r="1.6" fill="currentColor" />
+            <path d="M3 11 L7 3 L11 11" stroke="currentColor" strokeWidth="1" fill="none" strokeLinecap="round" />
+          </svg>
+        </button>
         {!collapsed && (
           <button
             onClick={() => setIsAddingList(true)}
@@ -370,23 +406,6 @@ export default function Sidebar({
       <nav style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         {/* Reminders — permanent, never deletable */}
         {renderPermanentRow(REMINDERS_LIST.name, REMINDERS_LIST.iconBg, REMINDERS_LIST.iconChar)}
-
-        {/* Decisions — permanent. The display label is "Decisions" but the
-            selection sentinel is DECISIONS_VIEW so it never collides with a
-            user-created list of the same name. */}
-        <div
-          key={DECISIONS_VIEW}
-          onClick={() => onListSelect(DECISIONS_VIEW)}
-          title={collapsed ? 'Decisions' : undefined}
-          style={rowStyle(activeList === DECISIONS_VIEW)}
-        >
-          <span style={iconStyle(DECISIONS_ROW.iconBg)}>{DECISIONS_ROW.iconChar}</span>
-          {!collapsed && (
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Decisions
-            </span>
-          )}
-        </div>
 
         {/* DB-managed lists (includes seeded sample lists + user-created) — all deletable */}
         {customLists.map(renderDeletableRow)}
