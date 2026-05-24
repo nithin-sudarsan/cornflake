@@ -378,18 +378,19 @@ export default function Sidebar({
             }
           }}
         >
-          {/* Loose constellation — four nodes in an asymmetric cluster with
-              sparse connections, evoking a zoomed-in slice of the real
-              decision graph rather than a generic triangle. */}
+          {/* Hub-and-spokes — central ring with four satellite rings, each
+              connected by a short line. Hollow circles (stroke only) match
+              the reference's outlined-icon style. */}
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path
-              d="M5 2.5 L2 7 M5 2.5 L9 6 M9 6 L8 11.5"
-              stroke="currentColor" strokeWidth="0.9" strokeLinecap="round"
+              d="M7 7 L3 3 M7 7 L11.5 4.5 M7 7 L3 11.5 M7 7 L11.5 11"
+              stroke="currentColor" strokeWidth="1" strokeLinecap="round"
             />
-            <circle cx="5"   cy="2.5"  r="1.4" fill="currentColor" />
-            <circle cx="2"   cy="7"    r="1.2" fill="currentColor" />
-            <circle cx="9"   cy="6"    r="1.5" fill="currentColor" />
-            <circle cx="8"   cy="11.5" r="1.2" fill="currentColor" />
+            <circle cx="7"    cy="7"    r="1.6" stroke="currentColor" strokeWidth="1.1" />
+            <circle cx="3"    cy="3"    r="1.5" stroke="currentColor" strokeWidth="1.1" />
+            <circle cx="11.5" cy="4.5"  r="1.5" stroke="currentColor" strokeWidth="1.1" />
+            <circle cx="3"    cy="11.5" r="1.5" stroke="currentColor" strokeWidth="1.1" />
+            <circle cx="11.5" cy="11"   r="1.5" stroke="currentColor" strokeWidth="1.1" />
           </svg>
         </button>
         {!collapsed && (
