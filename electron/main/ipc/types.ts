@@ -73,6 +73,10 @@ export const RENDERER_CHANNELS = {
   APP_RELAUNCH:                'app:relaunch',
   UPDATE_CHECK:                'update:check',
   UPDATE_INSTALL:              'update:install',
+  DECISIONS_GET_ALL:           'decisions:getAll',
+  DECISIONS_GET_BY_ID:         'decisions:getById',
+  DECISIONS_UPDATE_TEXT:       'decisions:updateText',
+  DECISIONS_DELETE:            'decisions:delete',
 } as const
 
 export type MainChannel = typeof MAIN_CHANNELS[keyof typeof MAIN_CHANNELS]

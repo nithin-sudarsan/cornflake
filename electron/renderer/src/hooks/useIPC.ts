@@ -341,6 +341,34 @@ export function useUpdateProfiles() {
 }
 
 // ---------------------------------------------------------------------------
+// Decisions
+// ---------------------------------------------------------------------------
+
+export function useGetAllDecisions() {
+  return useCallback(async (): Promise<DecisionRecord[]> => {
+    return window.electronAPI.getAllDecisions()
+  }, [])
+}
+
+export function useGetDecisionById() {
+  return useCallback(async (id: string) => {
+    return window.electronAPI.getDecisionById(id)
+  }, [])
+}
+
+export function useUpdateDecisionText() {
+  return useCallback(async (id: string, text: string): Promise<void> => {
+    await window.electronAPI.updateDecisionText({ id, text })
+  }, [])
+}
+
+export function useDeleteDecision() {
+  return useCallback(async (id: string): Promise<void> => {
+    await window.electronAPI.deleteDecision(id)
+  }, [])
+}
+
+// ---------------------------------------------------------------------------
 // Event subscription helpers (main → renderer)
 // ---------------------------------------------------------------------------
 
