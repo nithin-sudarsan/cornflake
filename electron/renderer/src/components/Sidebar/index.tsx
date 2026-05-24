@@ -378,12 +378,18 @@ export default function Sidebar({
             }
           }}
         >
-          {/* Three-node graph icon — small triangle of circles connected by lines */}
+          {/* Loose constellation — four nodes in an asymmetric cluster with
+              sparse connections, evoking a zoomed-in slice of the real
+              decision graph rather than a generic triangle. */}
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <circle cx="3" cy="11" r="1.6" fill="currentColor" />
-            <circle cx="11" cy="11" r="1.6" fill="currentColor" />
-            <circle cx="7" cy="3" r="1.6" fill="currentColor" />
-            <path d="M3 11 L7 3 L11 11" stroke="currentColor" strokeWidth="1" fill="none" strokeLinecap="round" />
+            <path
+              d="M5 2.5 L2 7 M5 2.5 L9 6 M9 6 L8 11.5"
+              stroke="currentColor" strokeWidth="0.9" strokeLinecap="round"
+            />
+            <circle cx="5"   cy="2.5"  r="1.4" fill="currentColor" />
+            <circle cx="2"   cy="7"    r="1.2" fill="currentColor" />
+            <circle cx="9"   cy="6"    r="1.5" fill="currentColor" />
+            <circle cx="8"   cy="11.5" r="1.2" fill="currentColor" />
           </svg>
         </button>
         {!collapsed && (
