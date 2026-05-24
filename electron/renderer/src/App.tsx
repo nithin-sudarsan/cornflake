@@ -3,6 +3,9 @@ import Sidebar from './components/Sidebar'
 import MainContent from './components/MainContent'
 import MeetingDetail from './components/MeetingDetail'
 import ReminderDetail from './components/ReminderDetail'
+import DecisionsList from './components/DecisionsList'
+import DecisionDetail from './components/DecisionDetail'
+import { DECISIONS_VIEW } from './components/Sidebar'
 import ProcessingScreen from './components/ProcessingScreen'
 import RightPanel from './components/RightPanel'
 import DeepgramPrivacyModal from './components/DeepgramPrivacyModal'
@@ -12,7 +15,7 @@ import SyncLoadingScreen from './components/SyncLoadingScreen'
 import type { ListRecord, ProcessingCompletePayload } from './hooks/useIPC'
 import { useOnProcessingComplete } from './hooks/useIPC'
 
-type MainView  = 'list' | 'processing' | 'meeting-detail' | 'reminder-detail'
+type MainView  = 'list' | 'processing' | 'meeting-detail' | 'reminder-detail' | 'decisions-list' | 'decision-detail'
 type AuthState = 'loading' | 'unauthenticated' | 'authenticated'
 type SyncState = 'idle' | 'pulling' | 'ready'
 
@@ -36,6 +39,7 @@ export default function App() {
   const [mainView, setMainView]         = useState<MainView>('list')
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null)
   const [selectedTaskId, setSelectedTaskId]       = useState<string | null>(null)
+  const [selectedDecisionId, setSelectedDecisionId] = useState<string | null>(null)
   const [notesRefreshKey, setNotesRefreshKey] = useState(0)
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem('cornflake-sidebar-collapsed') === 'true' } catch { return false }
@@ -198,11 +202,25 @@ export default function App() {
   // Other navigation handlers
   // ---------------------------------------------------------------------------
 
-  // Sidebar list selection is global navigation — always shows the list view
+  // Sidebar list selection is global navigation. The DECISIONS_VIEW sentinel
+  // routes to the standalone DecisionsList view; everything else is a tasks
+  // list and goes to MainContent.
   const handleListSelect = useCallback((name: string) => {
     setActiveList(name)
-    setMainView('list')
     setSelectedMeetingId(null)
+    setSelectedTaskId(null)
+    setSelectedDecisionId(null)
+    setMainView(name === DECISIONS_VIEW ? 'decisions-list' : 'list')
+  }, [])
+
+  const handleDecisionSelect = useCallback((id: string) => {
+    setSelectedDecisionId(id)
+    setMainView('decision-detail')
+  }, [])
+
+  const handleDecisionDeleted = useCallback(() => {
+    setSelectedDecisionId(null)
+    setMainView('decisions-list')
   }, [])
 
   const handleListCreated = useCallback((list: ListRecord) => {
@@ -236,10 +254,13 @@ export default function App() {
   }, [])
 
   const handleBackToList = useCallback(() => {
-    setMainView('list')
+    // Coming from a decision detail or from MeetingDetail-while-on-decisions
+    // should return to the decisions list, not the tasks list.
     setSelectedMeetingId(null)
     setSelectedTaskId(null)
-  }, [])
+    setSelectedDecisionId(null)
+    setMainView(activeList === DECISIONS_VIEW ? 'decisions-list' : 'list')
+  }, [activeList])
 
   // Show nothing while we check the session (avoids a flash of login screen)
   if (authState === 'loading') {
@@ -323,6 +344,23 @@ export default function App() {
             meetingId={selectedMeetingId!}
             onBack={handleBackToList}
             onTasksApproved={() => setNotesRefreshKey(k => k + 1)}
+            onDecisionSelect={handleDecisionSelect}
+          />
+        )}
+        {mainView === 'decisions-list' && (
+          <DecisionsList
+            onDecisionSelect={handleDecisionSelect}
+            dataVersion={dataVersion}
+          />
+        )}
+        {mainView === 'decision-detail' && (
+          <DecisionDetail
+            key={selectedDecisionId}
+            decisionId={selectedDecisionId!}
+            onBack={handleBackToList}
+            onDelete={handleDecisionDeleted}
+            onMeetingSelect={handleMeetingSelect}
+            onDecisionSelect={handleDecisionSelect}
           />
         )}
 

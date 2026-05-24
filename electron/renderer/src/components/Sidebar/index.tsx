@@ -13,6 +13,11 @@ import {
 // Only Reminders is a truly permanent default — never shown with a delete icon.
 const REMINDERS_LIST = { name: 'Reminders', iconBg: '#1A5CE6', iconChar: 'R' }
 
+// Decisions is a permanent sidebar entry. It's not backed by a tasks list —
+// the sentinel name routes MainContent to render the DecisionsList view.
+export const DECISIONS_VIEW = '__decisions__'
+const DECISIONS_ROW = { iconBg: '#8B5CF6', iconChar: 'D' }
+
 // Completed is permanent and always last.
 const COMPLETED_LIST = {
   name: 'Completed',
@@ -365,6 +370,23 @@ export default function Sidebar({
       <nav style={{ flex: 1, overflowY: 'auto', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         {/* Reminders — permanent, never deletable */}
         {renderPermanentRow(REMINDERS_LIST.name, REMINDERS_LIST.iconBg, REMINDERS_LIST.iconChar)}
+
+        {/* Decisions — permanent. The display label is "Decisions" but the
+            selection sentinel is DECISIONS_VIEW so it never collides with a
+            user-created list of the same name. */}
+        <div
+          key={DECISIONS_VIEW}
+          onClick={() => onListSelect(DECISIONS_VIEW)}
+          title={collapsed ? 'Decisions' : undefined}
+          style={rowStyle(activeList === DECISIONS_VIEW)}
+        >
+          <span style={iconStyle(DECISIONS_ROW.iconBg)}>{DECISIONS_ROW.iconChar}</span>
+          {!collapsed && (
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Decisions
+            </span>
+          )}
+        </div>
 
         {/* DB-managed lists (includes seeded sample lists + user-created) — all deletable */}
         {customLists.map(renderDeletableRow)}

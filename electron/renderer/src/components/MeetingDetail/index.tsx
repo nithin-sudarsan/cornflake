@@ -15,6 +15,7 @@ interface MeetingDetailProps {
   meetingId: string
   onBack: () => void
   onTasksApproved?: () => void  // notifies parent to refresh reminders
+  onDecisionSelect?: (decisionId: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -728,7 +729,7 @@ function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyCh
 // MeetingDetail
 // ---------------------------------------------------------------------------
 
-export default function MeetingDetail({ meetingId, onBack, onTasksApproved }: MeetingDetailProps) {
+export default function MeetingDetail({ meetingId, onBack, onTasksApproved, onDecisionSelect }: MeetingDetailProps) {
   const [detail, setDetail]               = useState<MeetingDetailData | null>(null)
   const [loading, setLoading]             = useState(true)
   const [showTranscript, setShowTranscript] = useState(false)
@@ -937,6 +938,35 @@ export default function MeetingDetail({ meetingId, onBack, onTasksApproved }: Me
               >
                 {restoring ? 'Restoring…' : 'Restore dismissed items'}
               </button>
+            </>
+          )}
+
+          {/* ---- Decisions ---- */}
+          {detail.decisions.length > 0 && (
+            <>
+              <div style={divider} />
+              <p style={sectionHeaderStyle}>Decisions</p>
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 6px' }}>
+                {detail.decisions.map(d => (
+                  <li
+                    key={d.id}
+                    onClick={() => onDecisionSelect?.(d.id)}
+                    style={{
+                      padding: '10px 12px',
+                      marginBottom: 6,
+                      backgroundColor: 'var(--color-bg-deep)',
+                      border: '1px solid var(--color-divider)',
+                      borderRadius: 6,
+                      cursor: onDecisionSelect ? 'pointer' : 'default',
+                      fontSize: 13, color: 'var(--color-text-primary)',
+                      lineHeight: 1.4,
+                      opacity: d.confidence === 'low' ? 0.55 : 1,
+                    }}
+                  >
+                    {d.text}
+                  </li>
+                ))}
+              </ul>
             </>
           )}
 

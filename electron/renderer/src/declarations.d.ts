@@ -66,7 +66,7 @@ interface ElectronAPI {
   reorderTasks: (orderedIds: string[]) => Promise<void>
   getMeetingDetail: (meetingId: string) => Promise<{
     id: string; title: string; startMs: number; endMs: number | null; summary: string | null;
-    decisions: Array<{ text: string }>;
+    decisions: Array<{ id: string; text: string; confidence: 'high' | 'medium' | 'low' | null }>;
     pendingTasks: Array<{
       id: string; title: string; assigneeSpeakerId: string | null; assigneeName: string | null;
       isSelfAssigned: boolean; deadlineText: string | null; deadlineMs: number | null;

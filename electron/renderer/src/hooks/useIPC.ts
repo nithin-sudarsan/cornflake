@@ -136,7 +136,7 @@ export interface MeetingDetailData {
   startMs: number
   endMs: number | null
   summary: string | null
-  decisions: { text: string }[]
+  decisions: { id: string; text: string; confidence: 'high' | 'medium' | 'low' | null }[]
   pendingTasks: TaskForApproval[]
   hasExtractedTasks: boolean
   hasDismissedTasks: boolean
