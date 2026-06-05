@@ -388,8 +388,8 @@ All communication between main and renderer goes through named IPC channels. No 
 'recording:stop'          payload: none
 'recording:discard'       payload: none
 'recording:updateTitle'   payload: { meetingId: string, title: string }
-'tasks:confirm'           payload: ConfirmedTasks
-'comms:send'              payload: ConfirmedComms
+'tasks:confirm'           payload: { meetingId, confirmedTaskIds, dismissedTaskIds }  -- drafts comms; does NOT send
+'comms:send'              payload: { meetingId }                                      -- approval gate; dispatches email
 'speakers:label'          payload: SpeakerLabelMap
 'profiles:update'         payload: SpeakerCorrections
 'calendar:connect'        payload: none                  -- initiates OAuth flow

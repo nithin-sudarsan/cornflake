@@ -35,7 +35,8 @@ Local SQLite is the source of truth for the running app; Supabase is the durable
    Then sequentially:
    - `updateUserProfile` — merges durable facts from this meeting into the user's markdown profile, upserts to Supabase, returns it on the response.
 6. **Review screen** — `MeetingDetail` renders notes, pending action items, participants. User approves/dismisses tasks and assigns them to lists.
-7. **Comms dispatch** — template-based message per named assignee; SendGrid email or in-app push depending on whether the recipient has Cornflake. v1 is single-player so this path is rarely hit.
+7. **Comms draft** — after `tasks:confirm`, the app calls `POST /api/comms/draft` with meeting transcript context and confirmed tasks. The LLM writes one editable email per assignee into `comms` (`sent_at` null). **No email is sent at this stage.**
+8. **Comms approval & send** — user reviews drafts in the Comms tab (edit copy, fix emails, toggle recipients), then explicitly triggers `comms:send`. Only then does the backend call SendGrid or deliver push notifications.
 
 ## 4. Data model (local SQLite)
 
@@ -155,5 +156,5 @@ Key flows:
 6. Speaker inference (Python sidecar + heuristics + LLM fallback) ✅
 7. LLM extraction (notes, tasks, decisions, title, user profile) ✅
 8. Review screen UI ✅ (MeetingDetail with action items + participants section)
-9. Comms dispatch — wired end-to-end; rarely used because v1 is single-player
+9. Comms draft + approval-gated dispatch — LLM drafts from context; SendGrid only after user sends from Comms tab
 10. End-to-end wiring — auth, sync, profile personalisation all integrated
