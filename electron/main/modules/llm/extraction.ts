@@ -1,13 +1,19 @@
 // Module 5 — LLM Extraction (via backend API)
 // Runs extraction (tasks, decisions, summary) through the Cornflake backend.
 // LLM speaker inference is also attempted via the backend response.
-// Comms copy is generated with a template (no direct LLM call needed).
+//
+// Comms protocol (draft → approve → send):
+//   1. User confirms tasks (tasks:confirm IPC) — no email leaves the app.
+//   2. generateCommsForMeeting drafts one message per assignee via POST /api/comms/draft,
+//      using meeting transcript context, task quotes, and deadlines.
+//   3. User reviews/edits drafts in the Comms tab.
+//   4. sendComms (comms:send IPC) dispatches only after explicit approval.
 
 import { getDb } from '../database/index.js'
 import { apiPost } from '../api-client/index.js'
 import type { LLMProvider } from './provider.js'
 import type {
-  ReviewPayload, Comm, NewTask, NewComm, Speaker, Utterance,
+  ReviewPayload, Comm, NewTask, NewComm, Speaker, Utterance, Task,
   Queries,
 } from '../database/index.js'
 import type { TranscriptUtterance } from '../transcription/index.js'
@@ -150,10 +156,10 @@ function matchSpeakerByName(name: string | null, speakers: Speaker[]): string | 
 }
 
 // ---------------------------------------------------------------------------
-// Comms copy — template-based (LLM API keys removed from Electron)
+// Comms copy — context-aware LLM draft (fallback template if backend unavailable)
 // ---------------------------------------------------------------------------
 
-function buildCommsMessage(
+function buildCommsMessageFallback(
   recipientName: string,
   meetingTitle: string,
   tasks: Array<{ title: string; deadlineText: string | null }>,
@@ -162,7 +168,76 @@ function buildCommsMessage(
     .map((t, i) => `${i + 1}. ${t.title}${t.deadlineText ? ` (by ${t.deadlineText})` : ''}`)
     .join('\n')
 
-  return `${recipientName}, following up from "${meetingTitle}" — here are your action items:\n\n${taskLines}\n\nTracked by Cornflake.`
+  return `Hi ${recipientName},\n\nFollowing up from "${meetingTitle}" — here are your action items:\n\n${taskLines}\n\nLet me know if anything looks off.\n\n— Sent via Cornflake`
+}
+
+function buildRecipientTranscriptExcerpt(
+  assignee: Speaker,
+  tasks: Task[],
+  utterances: Utterance[],
+  speakers: Speaker[],
+): string {
+  const nameLower = assignee.name?.toLowerCase() ?? ''
+  const quoteSnippets = tasks
+    .map(t => t.transcriptQuote)
+    .filter((q): q is string => Boolean(q && q.length > 8))
+    .map(q => q.slice(0, 48).toLowerCase())
+
+  const lines: string[] = []
+  for (const u of utterances) {
+    const speaker = speakers.find(s => s.id === u.speakerId)
+    const label = speaker?.name ?? 'Speaker'
+    const textLower = u.text.toLowerCase()
+    const mentionsAssignee = nameLower.length > 0 && textLower.includes(nameLower)
+    const mentionsTask = quoteSnippets.some(snippet => textLower.includes(snippet))
+    const isAssigneeSpeaking = speaker?.id === assignee.id
+
+    if (isAssigneeSpeaking || mentionsAssignee || mentionsTask) {
+      lines.push(`${label}: ${u.text}`)
+    }
+  }
+
+  return lines.slice(0, 24).join('\n')
+}
+
+async function draftCommsMessagesFromContext(
+  meeting: { title: string; summary: string | null },
+  utterances: Utterance[],
+  speakers: Speaker[],
+  recipients: Array<{ assignee: Speaker; tasks: Task[] }>,
+): Promise<Map<string, string>> {
+  const drafts = new Map<string, string>()
+
+  if (recipients.length === 0) return drafts
+
+  try {
+    const result = await apiPost('/api/comms/draft', {
+      meetingTitle:   meeting.title,
+      meetingSummary: meeting.summary,
+      recipients: recipients.map(({ assignee, tasks }) => ({
+        speakerId: assignee.id,
+        name:      assignee.name,
+        email:     assignee.email ?? null,
+        tasks: tasks.map(t => ({
+          title:           t.title,
+          deadlineText:    t.deadlineText,
+          transcriptQuote: t.transcriptQuote,
+          note:            t.note,
+        })),
+        transcriptExcerpt: buildRecipientTranscriptExcerpt(assignee, tasks, utterances, speakers),
+      })),
+    })
+
+    for (const row of (result?.drafts ?? []) as Array<{ speakerId: string; messageBody: string }>) {
+      if (row.speakerId && row.messageBody?.trim()) {
+        drafts.set(row.speakerId, row.messageBody.trim())
+      }
+    }
+  } catch (err) {
+    console.warn('[llm-extraction] /api/comms/draft failed — using template fallback:', (err as Error).message)
+  }
+
+  return drafts
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +411,7 @@ export async function runExtractionPipeline(
 
 // ---------------------------------------------------------------------------
 // Public: generateCommsForMeeting
-// Uses template-based message generation (no direct LLM call).
+// Drafts comms from meeting context. Does NOT send — user approves via comms:send.
 // ---------------------------------------------------------------------------
 
 export async function generateCommsForMeeting(
@@ -348,27 +423,41 @@ export async function generateCommsForMeeting(
   const meeting  = db.getMeetingById(meetingId)
   if (!meeting) throw new Error(`Meeting not found: ${meetingId}`)
 
-  const speakers = db.getSpeakersByMeeting(meetingId)
-  const assignees = speakers.filter(s => !s.isSelf && s.name !== null)
+  const speakers   = db.getSpeakersByMeeting(meetingId)
+  const utterances = db.getUtterancesByMeeting(meetingId)
+  const assignees  = speakers.filter(s => !s.isSelf && s.name !== null)
 
   if (assignees.length === 0) {
-    console.log('[llm-extraction] No named assignees — skipping comms generation')
+    console.log('[llm-extraction] No named assignees — skipping comms draft')
     return []
   }
 
   db.regenerateCommsForMeeting(meetingId)
 
-  const newComms: NewComm[] = []
-
-  for (const assignee of assignees) {
+  const recipientsWithTasks = assignees.flatMap(assignee => {
     const tasks = db.getTasksBySpeaker(meetingId, assignee.id)
       .filter(t => t.status === 'confirmed')
+    return tasks.length > 0 ? [{ assignee, tasks }] : []
+  })
 
-    if (tasks.length === 0) continue
+  if (recipientsWithTasks.length === 0) {
+    console.log('[llm-extraction] No confirmed tasks for external assignees — skipping comms draft')
+    return []
+  }
 
+  const draftedBodies = await draftCommsMessagesFromContext(
+    { title: meeting.title, summary: meeting.summary },
+    utterances,
+    speakers,
+    recipientsWithTasks,
+  )
+
+  const newComms: NewComm[] = []
+
+  for (const { assignee, tasks } of recipientsWithTasks) {
     const taskSummaries = tasks.map(t => ({ title: t.title, deadlineText: t.deadlineText }))
-
-    const message = buildCommsMessage(assignee.name!, meeting.title, taskSummaries)
+    const message = draftedBodies.get(assignee.id)
+      ?? buildCommsMessageFallback(assignee.name!, meeting.title, taskSummaries)
 
     newComms.push({
       meetingId,
@@ -383,7 +472,7 @@ export async function generateCommsForMeeting(
 
   if (newComms.length > 0) {
     const inserted = db.createComms(newComms)
-    console.log(`[llm-extraction] Created ${inserted.length} comms record(s)`)
+    console.log(`[llm-extraction] Drafted ${inserted.length} comms record(s) — awaiting user approval before send`)
     return inserted
   }
 

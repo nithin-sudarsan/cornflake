@@ -1,6 +1,9 @@
 // Module 7 — Comms Dispatch
 // Sends task notifications to participants via the Cornflake backend (SendGrid / push).
-// Called from the COMMS_SEND IPC handler after user clicks "Confirm & send".
+//
+// Approval gate: this module runs ONLY from the COMMS_SEND IPC handler after the user
+// reviews LLM-drafted messages in the Comms tab and clicks send. Drafting happens in
+// generateCommsForMeeting (Module 5); nothing is dispatched at transcript or task-confirm time.
 
 import { apiPost } from '../api-client/index.js'
 import { getDb } from '../database/index.js'

@@ -182,9 +182,20 @@ export const LLM_MODEL = {
 1. **Task extraction** — prompt: given transcript, extract all commitments and action items as JSON. Schema: `{ tasks: [{ title, assigneeName, deadlineText, confidence, transcriptQuote }] }`
 2. **Decision extraction** — prompt: extract decisions made in the meeting. Schema: `{ decisions: [{ text }] }`
 3. **Summary generation** — prompt: write a 3-5 sentence summary of the meeting.
-4. **Comms copy generation** — prompt: for each task, write a human-feeling notification message to the assignee. One call per assignee, passing their tasks as context.
+
+Comms copy is **not** generated during initial extraction. It runs later in the comms protocol (see below).
 
 All prompts request JSON-only responses. Responses validated against schema before use; malformed responses trigger a retry (max 2).
+
+**Comms draft call (after user confirms tasks, before any send):**
+
+4. **Comms draft generation** — `POST /api/comms/draft` on the backend. For each assignee with confirmed tasks, the LLM receives:
+   - Meeting title and summary
+   - That recipient's confirmed tasks (title, deadline, transcript quote, host note)
+   - A transcript excerpt where they were addressed or the commitment was discussed
+   - Output: one human-feeling email body per recipient, stored in `comms.message_body` as an editable draft
+
+Nothing is sent at this stage.
 
 ---
 
@@ -258,15 +269,30 @@ CREATE TABLE voice_profiles (
 ---
 
 ### Module 7 — Comms Dispatch
-**Responsibility:** Send task notifications to participants after user confirms.
+**Responsibility:** Send task notification emails **only after explicit user approval**.
 
-- Triggered by "Confirm & send" button
-- Reads confirmed comms records from DB
+**Comms protocol (draft → review → approve → send):**
+
+| Phase | Trigger | What happens | Outbound email? |
+|---|---|---|---|
+| 1. Extract | Recording stops | Tasks, decisions, summary written to DB | No |
+| 2. Task review | User approves/dismisses tasks in review UI | `tasks:confirm` IPC | No |
+| 3. Draft | Immediately after task confirm | `POST /api/comms/draft` uses transcript context to write one editable message per assignee into `comms` (`sent_at` null) | No |
+| 4. Comms review | User opens Comms tab | Edit message bodies; enter/fix recipient emails; toggle send per person | No |
+| 5. Approve & send | User clicks "Send" | `comms:send` IPC → `POST /api/comms/send` (SendGrid / push) | **Yes** |
+
+Rules:
+- Transcript completion never triggers email.
+- Task confirmation drafts comms but does not dispatch them.
+- `comms:send` is the only code path that calls SendGrid.
+- User-edited `message_body` is what gets sent (draft is not regenerated at send time unless tasks change).
+
+Implementation details:
 - For app users (push): macOS `Notification` API via Electron
 - For non-app users (email): SendGrid API using a Cornflake-hosted key — no SMTP setup required from the user
-- Each email includes the task, meeting name, and an "Install Cornflake" CTA link
+- Each email includes assigned tasks, meeting context, deadlines when known, and an optional "Install Cornflake" CTA
 - Marks `comms.sent_at` on success; surfaces failures in a post-send status screen
-- SendGrid API key is bundled with the app (not user-configurable). Rotate via app update if compromised.
+- SendGrid API key lives on the backend only (not user-configurable). Rotate via deploy if compromised.
 
 ---
 
@@ -324,19 +350,21 @@ Named transcript
 Review screen rendered (React UI, Module 6 reads)
         │
         ▼
-User reviews, edits, confirms tasks
+User reviews tasks — approves, dismisses, assigns to participants
         │
         ▼
-Comms copy generated per assignee (Module 5)
+tasks:confirm IPC — confirmed tasks saved; comms drafts generated (Module 5)
+  LLM drafts one email per assignee from transcript context (/api/comms/draft)
+  Drafts stored in comms table (sent_at = null) — nothing sent yet
         │
         ▼
-User reviews Comms tab — enters emails manually if not pulled from calendar
+User opens Comms tab — reviews/edits drafts, enters missing emails
         │
         ▼
-User clicks "Confirm & send"
+User clicks "Send" — comms:send IPC (explicit approval)
         │
-        ├──► Tasks written to DB as confirmed (Module 6)
-        ├──► Notifications dispatched (Module 7)
+        ├──► SendGrid / push dispatch (Module 7) — only path that sends email
+        ├──► comms.sent_at updated; sync to Supabase
         ├──► Voice profiles updated (Module 4 / Python sidecar)
         └──► Temp audio files deleted
 ```

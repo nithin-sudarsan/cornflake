@@ -504,7 +504,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   // ---------------------------------------------------------------------------
-  // Tasks confirm — update task statuses, generate comms copy for assignees
+  // Tasks confirm — update task statuses, draft comms (no outbound send)
   // ---------------------------------------------------------------------------
 
   ipcMain.handle(RENDERER_CHANNELS.TASKS_CONFIRM, async (
@@ -525,12 +525,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const comms = await generateCommsForMeeting(payload.meetingId)
     const reviewPayload = db.getMeetingReviewPayload(payload.meetingId)
 
-    console.log(`[tasks:confirm] Generated ${comms.length} comms record(s)`)
+    console.log(`[tasks:confirm] Drafted ${comms.length} comms record(s) — user must approve before send`)
     return reviewPayload
   })
 
   // ---------------------------------------------------------------------------
-  // Module 7 — Comms dispatch
+  // Module 7 — Comms dispatch (approval required — SendGrid / push only here)
   // ---------------------------------------------------------------------------
 
   ipcMain.handle(RENDERER_CHANNELS.COMMS_SEND, async (_event, payload: { meetingId: string }) => {
