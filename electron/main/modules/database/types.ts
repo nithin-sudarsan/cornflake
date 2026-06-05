@@ -110,7 +110,7 @@ export interface MeetingDetailData {
   startMs: number
   endMs: number | null
   summary: string | null
-  decisions: { text: string }[]
+  decisions: { id: string; text: string; confidence: 'high' | 'medium' | 'low' | null }[]
   pendingTasks: TaskForApproval[]
   hasExtractedTasks: boolean    // true if any tasks (any status) exist for this meeting
   hasDismissedTasks: boolean    // true if dismissed tasks exist (restore button shown)
@@ -122,7 +122,12 @@ export interface Decision {
   id: string
   meetingId: string
   text: string
+  transcriptQuote: string | null
+  decidedBySpeakerId: string | null
+  extractionConfidence: 'high' | 'medium' | 'low' | null
+  parentDecisionId: string | null
   createdAt: number
+  updatedAt: number
 }
 
 export interface Comm {

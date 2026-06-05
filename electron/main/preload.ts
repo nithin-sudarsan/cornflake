@@ -53,6 +53,10 @@ const CH = {
   APP_RELAUNCH:                'app:relaunch',
   UPDATE_CHECK:                'update:check',
   UPDATE_INSTALL:              'update:install',
+  DECISIONS_GET_ALL:           'decisions:getAll',
+  DECISIONS_GET_BY_ID:         'decisions:getById',
+  DECISIONS_UPDATE_TEXT:       'decisions:updateText',
+  DECISIONS_DELETE:            'decisions:delete',
   // Main → Renderer
   MEETING_UPCOMING:        'meeting:upcoming',
   CALENDAR_EVENTS_UPDATED: 'calendar:eventsUpdated',
@@ -120,6 +124,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   relaunchApp:             ()                                          => ipcRenderer.invoke(CH.APP_RELAUNCH),
   checkForUpdates:         ()                                          => ipcRenderer.invoke(CH.UPDATE_CHECK),
   installUpdate:           ()                                          => ipcRenderer.invoke(CH.UPDATE_INSTALL),
+  getAllDecisions:         ()                                          => ipcRenderer.invoke(CH.DECISIONS_GET_ALL),
+  getDecisionById:         (id: string)                                => ipcRenderer.invoke(CH.DECISIONS_GET_BY_ID, id),
+  updateDecisionText:      (payload: { id: string; text: string })     => ipcRenderer.invoke(CH.DECISIONS_UPDATE_TEXT, payload),
+  deleteDecision:          (id: string)                                => ipcRenderer.invoke(CH.DECISIONS_DELETE, id),
 
   // Main → Renderer (event subscriptions)
   onMeetingUpcoming:        (cb: (payload: unknown) => void) => ipcRenderer.on(CH.MEETING_UPCOMING,        (_e, p) => cb(p)),

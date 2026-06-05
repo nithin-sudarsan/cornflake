@@ -265,6 +265,55 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   // ---------------------------------------------------------------------------
+  // Decisions — global list + detail + edit + delete.
+  // Sidebar Decisions entry reads getAll; the detail view reads getById and
+  // the inline lineage section's children come from the same get-all set so
+  // we don't need a dedicated children endpoint here.
+  // ---------------------------------------------------------------------------
+
+  ipcMain.handle(RENDERER_CHANNELS.DECISIONS_GET_ALL, async () => {
+    return getDb().getAllDecisions()
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.DECISIONS_GET_BY_ID, async (_e, id: string) => {
+    const db = getDb()
+    const decision = db.getDecisionById(id)
+    if (!decision) return null
+    // Hydrate everything the detail view needs in one round-trip: meeting
+    // title (for the "from" link), speaker name (for "decided by"), parent
+    // decision (for "stems from"), and children (for "referenced by").
+    const meeting = db.getMeetingById(decision.meetingId)
+    const speakers = db.getSpeakersByMeeting(decision.meetingId)
+    const speaker  = decision.decidedBySpeakerId
+      ? speakers.find(s => s.id === decision.decidedBySpeakerId) ?? null
+      : null
+    const parent   = decision.parentDecisionId
+      ? db.getDecisionById(decision.parentDecisionId)
+      : null
+    const children = db.getChildDecisions(decision.id)
+    return {
+      decision,
+      meetingTitle: meeting?.title ?? null,
+      speakerName:  speaker?.name ?? null,
+      parent,
+      children,
+    }
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.DECISIONS_UPDATE_TEXT, async (_e, payload: { id: string; text: string }) => {
+    const text = (payload?.text ?? '').trim()
+    if (!payload?.id || !text) return null
+    getDb().updateDecisionText(payload.id, text)
+    return null
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.DECISIONS_DELETE, async (_e, id: string) => {
+    if (!id) return null
+    getDb().deleteDecision(id)
+    return null
+  })
+
+  // ---------------------------------------------------------------------------
   // Auth — WorkOS SSO
   // ---------------------------------------------------------------------------
 

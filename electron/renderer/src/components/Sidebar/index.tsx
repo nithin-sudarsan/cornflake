@@ -13,6 +13,10 @@ import {
 // Only Reminders is a truly permanent default — never shown with a delete icon.
 const REMINDERS_LIST = { name: 'Reminders', iconBg: '#1A5CE6', iconChar: 'R' }
 
+// Decisions is reached via the graph icon in the header, not a list row. The
+// sentinel name keeps the view-routing key out of the user list namespace.
+export const DECISIONS_VIEW = '__decisions__'
+
 // Completed is permanent and always last.
 const COMPLETED_LIST = {
   name: 'Completed',
@@ -345,6 +349,50 @@ export default function Sidebar({
             </svg>
           </button>
         )}
+        {/* Graph view — opens the decisions graph (obsidian-style force
+            layout). Lives next to the collapse + new-list buttons; treated
+            as a sibling navigation entry rather than a list row. */}
+        <button
+          onClick={() => onListSelect(DECISIONS_VIEW)}
+          title="Decisions graph"
+          aria-label="Decisions graph"
+          style={{
+            background: activeList === DECISIONS_VIEW ? 'rgba(255,255,255,0.06)' : 'none',
+            border: 'none',
+            borderRadius: 6,
+            cursor: 'pointer',
+            color: activeList === DECISIONS_VIEW
+              ? 'var(--color-text-primary)'
+              : 'var(--color-text-muted)',
+            padding: collapsed ? 0 : '2px 6px 0 4px',
+            width: collapsed ? 32 : 'auto',
+            height: collapsed ? 28 : 'auto',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'inherit',
+            WebkitAppRegion: 'no-drag',
+          } as React.CSSProperties}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text-primary)')}
+          onMouseLeave={e => {
+            if (activeList !== DECISIONS_VIEW) {
+              e.currentTarget.style.color = 'var(--color-text-muted)'
+            }
+          }}
+        >
+          {/* Hub-and-spokes — central ring with four satellite rings, each
+              connected by a short line. Hollow circles (stroke only) match
+              the reference's outlined-icon style. */}
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path
+              d="M7 7 L3 3 M7 7 L11.5 4.5 M7 7 L3 11.5 M7 7 L11.5 11"
+              stroke="currentColor" strokeWidth="1" strokeLinecap="round"
+            />
+            <circle cx="7"    cy="7"    r="1.6" stroke="currentColor" strokeWidth="1.1" />
+            <circle cx="3"    cy="3"    r="1.5" stroke="currentColor" strokeWidth="1.1" />
+            <circle cx="11.5" cy="4.5"  r="1.5" stroke="currentColor" strokeWidth="1.1" />
+            <circle cx="3"    cy="11.5" r="1.5" stroke="currentColor" strokeWidth="1.1" />
+            <circle cx="11.5" cy="11"   r="1.5" stroke="currentColor" strokeWidth="1.1" />
+          </svg>
+        </button>
         {!collapsed && (
           <button
             onClick={() => setIsAddingList(true)}

@@ -66,7 +66,13 @@ interface ListRow {
 }
 
 interface DecisionRow {
-  id: string; meeting_id: string; text: string; created_at: number
+  id: string; meeting_id: string; text: string
+  transcript_quote: string | null
+  decided_by_speaker_id: string | null
+  extraction_confidence: string | null
+  parent_decision_id: string | null
+  created_at: number
+  updated_at: number
 }
 
 interface CommRow {
@@ -124,7 +130,14 @@ function mapList(r: ListRow): ListRecord {
 }
 
 function mapDecision(r: DecisionRow): Decision {
-  return { id: r.id, meetingId: r.meeting_id, text: r.text, createdAt: r.created_at }
+  return {
+    id: r.id, meetingId: r.meeting_id, text: r.text,
+    transcriptQuote: r.transcript_quote,
+    decidedBySpeakerId: r.decided_by_speaker_id,
+    extractionConfidence: r.extraction_confidence as Decision['extractionConfidence'],
+    parentDecisionId: r.parent_decision_id,
+    createdAt: r.created_at, updatedAt: r.updated_at,
+  }
 }
 
 function mapComm(r: CommRow): Comm {
@@ -464,16 +477,44 @@ export function buildQueries(db: Database.Database) {
   // Decision queries
   // -------------------------------------------------------------------------
 
-  function createDecisions(decisions: Array<{ meetingId: string; text: string }>): Decision[] {
+  // Input shape from the extraction pipeline. parentIndex is a positional
+  // reference into the same input array (the LLM doesn't know our DB IDs);
+  // we resolve it to a parent_decision_id during insert.
+  interface NewDecisionInput {
+    meetingId: string
+    text: string
+    transcriptQuote?: string | null
+    decidedBySpeakerId?: string | null
+    extractionConfidence?: 'high' | 'medium' | 'low' | null
+    parentIndex?: number | null
+  }
+
+  function createDecisions(decisions: NewDecisionInput[]): Decision[] {
     const ts = now()
-    const insert = db.prepare(`INSERT INTO decisions (id, meeting_id, text, created_at) VALUES (?, ?, ?, ?)`)
-    const ids: string[] = []
+    const insert = db.prepare(`
+      INSERT INTO decisions (
+        id, meeting_id, text, transcript_quote, decided_by_speaker_id,
+        extraction_confidence, parent_decision_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    // Pre-allocate IDs so parentIndex can be resolved to parent IDs before
+    // the row is written (the parent FK must be set in the same INSERT).
+    const ids = decisions.map(() => randomUUID())
     const tx = db.transaction(() => {
-      for (const d of decisions) {
-        const id = randomUUID()
-        ids.push(id)
-        insert.run(id, d.meetingId, d.text, ts)
-      }
+      decisions.forEach((d, i) => {
+        const parentId =
+          d.parentIndex != null && d.parentIndex >= 0 && d.parentIndex < i
+            ? ids[d.parentIndex]
+            : null
+        insert.run(
+          ids[i], d.meetingId, d.text,
+          d.transcriptQuote ?? null,
+          d.decidedBySpeakerId ?? null,
+          d.extractionConfidence ?? null,
+          parentId,
+          ts, ts,
+        )
+      })
     })
     tx()
     return ids.map(id => {
@@ -486,6 +527,51 @@ export function buildQueries(db: Database.Database) {
   function getDecisionsByMeeting(meetingId: string): Decision[] {
     return (db.prepare(`SELECT * FROM decisions WHERE meeting_id = ? ORDER BY created_at`)
       .all(meetingId) as DecisionRow[]).map(mapDecision)
+  }
+
+  // All decisions across all meetings, newest first. Used by the global
+  // Decisions sidebar entry.
+  function getAllDecisions(): Decision[] {
+    return (db.prepare(`SELECT * FROM decisions ORDER BY created_at DESC`)
+      .all() as DecisionRow[]).map(mapDecision)
+  }
+
+  function getDecisionById(id: string): Decision | null {
+    const row = db.prepare(`SELECT * FROM decisions WHERE id = ?`).get(id) as DecisionRow | undefined
+    return row ? mapDecision(row) : null
+  }
+
+  // Children of a decision — decisions that point back to this one as parent.
+  // Used by the detail view's "Referenced by" section.
+  function getChildDecisions(parentId: string): Decision[] {
+    return (db.prepare(`SELECT * FROM decisions WHERE parent_decision_id = ? ORDER BY created_at`)
+      .all(parentId) as DecisionRow[]).map(mapDecision)
+  }
+
+  function updateDecisionText(id: string, text: string): void {
+    const ts = now()
+    db.prepare(`UPDATE decisions SET text = ?, updated_at = ? WHERE id = ?`).run(text, ts, id)
+    const row = db.prepare(`SELECT * FROM decisions WHERE id = ?`).get(id)
+    if (row) _onWrite?.('decisions', row as Record<string, unknown>)
+  }
+
+  function deleteDecision(id: string): void {
+    // Find children first so we can fire write hooks for them (their
+    // parent_decision_id is about to change). Then null the children's
+    // parent FK so we don't violate the FK constraint on delete.
+    const childRows = db.prepare(`SELECT * FROM decisions WHERE parent_decision_id = ?`)
+      .all(id) as DecisionRow[]
+    const tx = db.transaction(() => {
+      db.prepare(`UPDATE decisions SET parent_decision_id = NULL, updated_at = ? WHERE parent_decision_id = ?`)
+        .run(now(), id)
+      db.prepare(`DELETE FROM decisions WHERE id = ?`).run(id)
+    })
+    tx()
+    for (const r of childRows) {
+      const updated = db.prepare(`SELECT * FROM decisions WHERE id = ?`).get(r.id) as DecisionRow | undefined
+      if (updated) _onWrite?.('decisions', updated as unknown as Record<string, unknown>)
+    }
+    _onDelete?.('decisions', id)
   }
 
   // -------------------------------------------------------------------------
@@ -823,7 +909,10 @@ export function buildQueries(db: Database.Database) {
       startMs:   meeting.startMs,
       endMs:     meeting.endMs,
       summary:   meeting.summary,
-      decisions: decisions.map(d => ({ text: d.text })),
+      decisions: decisions.map(d => ({
+        id: d.id, text: d.text,
+        confidence: d.extractionConfidence,
+      })),
       hasExtractedTasks:  totalTaskCount > 0,
       hasDismissedTasks:  dismissedTaskCount > 0,
       pendingTasks: pendingTaskRows.map(r => ({
@@ -1149,6 +1238,11 @@ export function buildQueries(db: Database.Database) {
     // decisions
     createDecisions,
     getDecisionsByMeeting,
+    getAllDecisions,
+    getDecisionById,
+    getChildDecisions,
+    updateDecisionText,
+    deleteDecision,
     // comms
     createComms,
     updateCommMessage,

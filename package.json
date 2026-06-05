@@ -1,7 +1,7 @@
 {
   "name": "cornflake",
   "productName": "Cornflake",
-  "version": "1.0.8",
+  "version": "1.0.9-beta.2",
   "description": "AI-powered meeting accountability app",
   "main": "dist/main/index.js",
   "build": {
@@ -125,8 +125,14 @@
   },
   "dependencies": {
     "@deepgram/sdk": "^5.2.0",
+    "@types/d3-force": "^3.0.10",
+    "@types/d3-selection": "^3.0.11",
+    "@types/d3-zoom": "^3.0.8",
     "@workos-inc/node": "^9.3.0",
     "better-sqlite3": "^12.10.0",
+    "d3-force": "^3.0.0",
+    "d3-selection": "^3.0.0",
+    "d3-zoom": "^3.0.0",
     "dotenv": "^17.4.2",
     "electron-updater": "^6.8.3",
     "googleapis": "^171.4.0",

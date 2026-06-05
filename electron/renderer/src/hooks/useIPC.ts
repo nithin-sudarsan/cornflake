@@ -136,7 +136,7 @@ export interface MeetingDetailData {
   startMs: number
   endMs: number | null
   summary: string | null
-  decisions: { text: string }[]
+  decisions: { id: string; text: string; confidence: 'high' | 'medium' | 'low' | null }[]
   pendingTasks: TaskForApproval[]
   hasExtractedTasks: boolean
   hasDismissedTasks: boolean
@@ -337,6 +337,34 @@ export function useUpdateProfiles() {
     corrections: SpeakerResolution[]
   ): Promise<void> => {
     await window.electronAPI.updateProfiles({ meetingId, corrections })
+  }, [])
+}
+
+// ---------------------------------------------------------------------------
+// Decisions
+// ---------------------------------------------------------------------------
+
+export function useGetAllDecisions() {
+  return useCallback(async (): Promise<DecisionRecord[]> => {
+    return window.electronAPI.getAllDecisions()
+  }, [])
+}
+
+export function useGetDecisionById() {
+  return useCallback(async (id: string) => {
+    return window.electronAPI.getDecisionById(id)
+  }, [])
+}
+
+export function useUpdateDecisionText() {
+  return useCallback(async (id: string, text: string): Promise<void> => {
+    await window.electronAPI.updateDecisionText({ id, text })
+  }, [])
+}
+
+export function useDeleteDecision() {
+  return useCallback(async (id: string): Promise<void> => {
+    await window.electronAPI.deleteDecision(id)
   }, [])
 }
 

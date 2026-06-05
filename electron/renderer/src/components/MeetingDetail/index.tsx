@@ -15,6 +15,8 @@ interface MeetingDetailProps {
   meetingId: string
   onBack: () => void
   onTasksApproved?: () => void  // notifies parent to refresh reminders
+  onDecisionSelect?: (decisionId: string) => void
+  dataVersion?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -728,7 +730,7 @@ function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyCh
 // MeetingDetail
 // ---------------------------------------------------------------------------
 
-export default function MeetingDetail({ meetingId, onBack, onTasksApproved }: MeetingDetailProps) {
+export default function MeetingDetail({ meetingId, onBack, onTasksApproved, onDecisionSelect, dataVersion }: MeetingDetailProps) {
   const [detail, setDetail]               = useState<MeetingDetailData | null>(null)
   const [loading, setLoading]             = useState(true)
   const [showTranscript, setShowTranscript] = useState(false)
@@ -736,6 +738,9 @@ export default function MeetingDetail({ meetingId, onBack, onTasksApproved }: Me
   const [editingTitle, setEditingTitle]   = useState(false)
   const [titleDraft, setTitleDraft]       = useState('')
   const titleInputRef                     = useRef<HTMLInputElement>(null)
+  // Capture dataVersion at mount time so we only re-fetch on changes that happen
+  // AFTER the initial load (which already reads fresh data from SQLite).
+  const dataVersionOnMount                = useRef(dataVersion)
   const getMeetingDetail       = useGetMeetingDetail()
   const restoreDismissedIPC    = useRestoreDismissedTasks()
   const updateTitleIPC         = useUpdateTitle()
@@ -769,6 +774,14 @@ export default function MeetingDetail({ meetingId, onBack, onTasksApproved }: Me
     setEditingTitle(false)  // cancel any in-progress title edit when switching meetings
     loadDetail()
   }, [meetingId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Silently re-fetch when a sync push or pull updates local SQLite after the
+  // initial load. Skips the first render (dataVersionOnMount captures the value
+  // at mount so changes that happened before mount don't trigger an extra fetch).
+  useEffect(() => {
+    if (dataVersion === dataVersionOnMount.current) return
+    loadDetail()
+  }, [dataVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-focus + select-all when title edit mode opens
   useEffect(() => {
@@ -937,6 +950,35 @@ export default function MeetingDetail({ meetingId, onBack, onTasksApproved }: Me
               >
                 {restoring ? 'Restoring…' : 'Restore dismissed items'}
               </button>
+            </>
+          )}
+
+          {/* ---- Decisions ---- */}
+          {detail.decisions.length > 0 && (
+            <>
+              <div style={divider} />
+              <p style={sectionHeaderStyle}>Decisions</p>
+              <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 6px' }}>
+                {detail.decisions.map(d => (
+                  <li
+                    key={d.id}
+                    onClick={() => onDecisionSelect?.(d.id)}
+                    style={{
+                      padding: '10px 12px',
+                      marginBottom: 6,
+                      backgroundColor: 'var(--color-bg-deep)',
+                      border: '1px solid var(--color-divider)',
+                      borderRadius: 6,
+                      cursor: onDecisionSelect ? 'pointer' : 'default',
+                      fontSize: 13, color: 'var(--color-text-primary)',
+                      lineHeight: 1.4,
+                      opacity: d.confidence === 'low' ? 0.55 : 1,
+                    }}
+                  >
+                    {d.text}
+                  </li>
+                ))}
+              </ul>
             </>
           )}
 

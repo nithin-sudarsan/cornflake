@@ -211,13 +211,30 @@ export async function runExtractionPipeline(
   console.log('[llm-extraction] result.tasks type:', typeof result?.tasks, '| isArray:', Array.isArray(result?.tasks))
 
   const rawTasks:      RawTask[]       = result?.tasks     ?? []
-  const decisionTexts: string[]        = (result?.decisions ?? []).map((d: any) => d.text ?? d).filter(Boolean)
+  // Decisions: tolerate older shape (just { text }) and richer shape with
+  // transcriptQuote / decidedBySpeakerId / confidence / parentIndex.
+  interface RawDecision {
+    text?: string
+    transcriptQuote?: string | null
+    decidedBySpeakerId?: string | null
+    confidence?: string | null
+    parentIndex?: number | null
+  }
+  const rawDecisions: RawDecision[] = (result?.decisions ?? [])
+    .filter((d: unknown): d is RawDecision => {
+      if (typeof d === 'object' && d !== null) return true
+      return typeof d === 'string'   // tolerate "just a string" responses
+    })
+    .map((d: RawDecision | string): RawDecision =>
+      typeof d === 'string' ? { text: d } : d
+    )
+    .filter((d: RawDecision) => typeof d.text === 'string' && d.text.trim().length > 0)
   const summaryText:   string          = result?.summary   ?? ''
   const extractedTitle: string         = (result?.title ?? '').trim()
   // result.speakerInference is intentionally ignored in v1 — single-player mode.
 
   console.log(`[llm-extraction] Backend title: "${extractedTitle || '(none)'}"`)
-  console.log(`[llm-extraction] Parsed — tasks: ${rawTasks.length}, decisions: ${decisionTexts.length}, summary: ${summaryText.length} chars`)
+  console.log(`[llm-extraction] Parsed — tasks: ${rawTasks.length}, decisions: ${rawDecisions.length}, summary: ${summaryText.length} chars`)
 
   // Map extracted tasks → DB NewTask rows
   const newTasks: NewTask[] = rawTasks.map(t => {
@@ -260,7 +277,32 @@ export async function runExtractionPipeline(
   } else {
     console.warn('[llm-extraction] No tasks written to DB — rawTasks was empty or mapping produced 0 rows')
   }
-  if (decisionTexts.length > 0)   db.createDecisions(decisionTexts.map(text => ({ meetingId, text })))
+  if (rawDecisions.length > 0) {
+    // Map backend deepgram speaker IDs ("0", "1") to local speaker row IDs so
+    // the FK actually resolves. Backend uses the deepgram tag; DB references
+    // speakers.id (the local row id). If a tag has no matching speaker (e.g.
+    // unresolved deepgram id), we leave the field null.
+    const speakersForMeeting = db.getSpeakersByMeeting(meetingId)
+    const deepgramToSpeakerId = new Map<string, string>()
+    for (const sp of speakersForMeeting) {
+      if (sp.deepgramId != null) deepgramToSpeakerId.set(sp.deepgramId, sp.id)
+    }
+
+    db.createDecisions(rawDecisions.map(d => ({
+      meetingId,
+      text: d.text!.trim(),
+      transcriptQuote: d.transcriptQuote ?? null,
+      decidedBySpeakerId:
+        d.decidedBySpeakerId != null
+          ? (deepgramToSpeakerId.get(d.decidedBySpeakerId) ?? null)
+          : null,
+      extractionConfidence:
+        d.confidence === 'high' || d.confidence === 'medium' || d.confidence === 'low'
+          ? d.confidence
+          : null,
+      parentIndex: typeof d.parentIndex === 'number' ? d.parentIndex : null,
+    })))
+  }
   if (summaryText) {
     db.updateMeetingSummary(meetingId, summaryText)
   }
@@ -287,7 +329,7 @@ export async function runExtractionPipeline(
     }
   }
 
-  console.log(`[llm-extraction] Pipeline complete — tasks written: ${newTasks.length}, decisions: ${decisionTexts.length}`)
+  console.log(`[llm-extraction] Pipeline complete — tasks written: ${newTasks.length}, decisions: ${rawDecisions.length}`)
 
   return db.getMeetingReviewPayload(meetingId)
 }

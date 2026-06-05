@@ -10,6 +10,20 @@ declare module '*.jpeg' { const url: string; export default url }
 declare module '*.gif' { const url: string; export default url }
 declare module '*.svg' { const url: string; export default url }
 
+// A single decision record as returned by the main process. Mirrors the
+// Decision DB type in electron/main/modules/database/types.ts.
+interface DecisionRecord {
+  id: string
+  meetingId: string
+  text: string
+  transcriptQuote: string | null
+  decidedBySpeakerId: string | null
+  extractionConfidence: 'high' | 'medium' | 'low' | null
+  parentDecisionId: string | null
+  createdAt: number
+  updatedAt: number
+}
+
 // Typed shape of window.electronAPI exposed by the preload script via contextBridge.
 interface ElectronAPI {
   // Auth
@@ -52,7 +66,7 @@ interface ElectronAPI {
   reorderTasks: (orderedIds: string[]) => Promise<void>
   getMeetingDetail: (meetingId: string) => Promise<{
     id: string; title: string; startMs: number; endMs: number | null; summary: string | null;
-    decisions: Array<{ text: string }>;
+    decisions: Array<{ id: string; text: string; confidence: 'high' | 'medium' | 'low' | null }>;
     pendingTasks: Array<{
       id: string; title: string; assigneeSpeakerId: string | null; assigneeName: string | null;
       isSelfAssigned: boolean; deadlineText: string | null; deadlineMs: number | null;
@@ -83,6 +97,16 @@ interface ElectronAPI {
   relaunchApp: () => Promise<null>
   checkForUpdates: () => Promise<null>
   installUpdate: () => Promise<null>
+  getAllDecisions: () => Promise<DecisionRecord[]>
+  getDecisionById: (id: string) => Promise<{
+    decision: DecisionRecord
+    meetingTitle: string | null
+    speakerName: string | null
+    parent: DecisionRecord | null
+    children: DecisionRecord[]
+  } | null>
+  updateDecisionText: (payload: { id: string; text: string }) => Promise<null>
+  deleteDecision: (id: string) => Promise<null>
 
   // Main → Renderer (event subscriptions)
   onMeetingUpcoming: (cb: (payload: unknown) => void) => void
