@@ -16,6 +16,7 @@ interface MeetingDetailProps {
   onBack: () => void
   onTasksApproved?: () => void  // notifies parent to refresh reminders
   onDecisionSelect?: (decisionId: string) => void
+  dataVersion?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -729,7 +730,7 @@ function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyCh
 // MeetingDetail
 // ---------------------------------------------------------------------------
 
-export default function MeetingDetail({ meetingId, onBack, onTasksApproved, onDecisionSelect }: MeetingDetailProps) {
+export default function MeetingDetail({ meetingId, onBack, onTasksApproved, onDecisionSelect, dataVersion }: MeetingDetailProps) {
   const [detail, setDetail]               = useState<MeetingDetailData | null>(null)
   const [loading, setLoading]             = useState(true)
   const [showTranscript, setShowTranscript] = useState(false)
@@ -737,6 +738,9 @@ export default function MeetingDetail({ meetingId, onBack, onTasksApproved, onDe
   const [editingTitle, setEditingTitle]   = useState(false)
   const [titleDraft, setTitleDraft]       = useState('')
   const titleInputRef                     = useRef<HTMLInputElement>(null)
+  // Capture dataVersion at mount time so we only re-fetch on changes that happen
+  // AFTER the initial load (which already reads fresh data from SQLite).
+  const dataVersionOnMount                = useRef(dataVersion)
   const getMeetingDetail       = useGetMeetingDetail()
   const restoreDismissedIPC    = useRestoreDismissedTasks()
   const updateTitleIPC         = useUpdateTitle()
@@ -770,6 +774,14 @@ export default function MeetingDetail({ meetingId, onBack, onTasksApproved, onDe
     setEditingTitle(false)  // cancel any in-progress title edit when switching meetings
     loadDetail()
   }, [meetingId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Silently re-fetch when a sync push or pull updates local SQLite after the
+  // initial load. Skips the first render (dataVersionOnMount captures the value
+  // at mount so changes that happened before mount don't trigger an extra fetch).
+  useEffect(() => {
+    if (dataVersion === dataVersionOnMount.current) return
+    loadDetail()
+  }, [dataVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-focus + select-all when title edit mode opens
   useEffect(() => {

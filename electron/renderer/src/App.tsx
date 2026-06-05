@@ -190,6 +190,10 @@ export default function App() {
       setSelectedMeetingId(payload.meetingId)
       setMainView('meeting-detail')
       setNotesRefreshKey(k => k + 1)
+      // Bump dataVersion so MainContent (task lists) and DecisionsGraph re-fetch
+      // from local SQLite immediately — extraction already wrote there before
+      // sending this event.
+      setDataVersion(v => v + 1)
     }
     if (payload.error) {
       console.error('[App] Pipeline error:', payload.error)
@@ -345,6 +349,7 @@ export default function App() {
             onBack={handleBackToList}
             onTasksApproved={() => setNotesRefreshKey(k => k + 1)}
             onDecisionSelect={handleDecisionSelect}
+            dataVersion={dataVersion}
           />
         )}
         {mainView === 'decisions-graph' && (
