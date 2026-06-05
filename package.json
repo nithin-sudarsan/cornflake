@@ -1,7 +1,7 @@
 {
   "name": "cornflake",
   "productName": "Cornflake",
-  "version": "1.0.9-beta.2",
+  "version": "1.0.9-beta.3",
   "description": "AI-powered meeting accountability app",
   "main": "dist/main/index.js",
   "build": {
