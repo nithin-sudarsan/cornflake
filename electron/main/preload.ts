@@ -10,7 +10,10 @@ const CH = {
   DISCARD:         'recording:discard',
   UPDATE_TITLE:    'recording:updateTitle',
   TASKS_CONFIRM:   'tasks:confirm',
-  COMMS_SEND:      'comms:send',
+  COMMS_SEND:              'comms:send',
+  COMMS_UPDATE_MESSAGE:    'comms:updateMessage',
+  COMMS_UPDATE_RECIPIENT:  'comms:updateRecipient',
+  COMMS_SET_CHANNEL:       'comms:setChannel',
   RENDERER_READY:    'renderer:ready',
   PROCESSING_ACK:    'processing:ack',
   SPEAKERS_LABEL:    'speakers:label',
@@ -84,6 +87,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   updateTitle:      (payload: { meetingId: string; title: string }) => ipcRenderer.invoke(CH.UPDATE_TITLE, payload),
   confirmTasks:     (payload: unknown)                          => ipcRenderer.invoke(CH.TASKS_CONFIRM, payload),
   sendComms:        (payload: unknown)                          => ipcRenderer.invoke(CH.COMMS_SEND, payload),
+  updateCommMessage: (payload: { commId: string; messageBody: string }) =>
+    ipcRenderer.invoke(CH.COMMS_UPDATE_MESSAGE, payload),
+  updateCommRecipient: (payload: { commId: string; email?: string | null; send?: boolean }) =>
+    ipcRenderer.invoke(CH.COMMS_UPDATE_RECIPIENT, payload),
+  setCommChannel:   (payload: { commId: string; channel: 'push' | 'email' | 'both' }) =>
+    ipcRenderer.invoke(CH.COMMS_SET_CHANNEL, payload),
   labelSpeakers:    (payload: unknown)                          => ipcRenderer.invoke(CH.SPEAKERS_LABEL, payload),
   confirmSpeaker:   (payload: unknown)                          => ipcRenderer.invoke(CH.SPEAKERS_CONFIRM, payload),
   resolveSpeaker:   (payload: unknown)                          => ipcRenderer.invoke(CH.SPEAKERS_RESOLVE, payload),

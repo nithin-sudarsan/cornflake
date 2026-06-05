@@ -101,7 +101,8 @@ All `/api/*` routes except `/api/auth/*` require a Bearer token (WorkOS sealed s
 - `POST /api/extract` — utterances + speakers → tasks, decisions, summary, title, speaker inference, updated profile
 - `GET  /api/sync/pull` — all rows for the current user, table-ordered
 - `POST /api/sync/push` — apply a batch of upserts/deletes
-- `POST /api/comms/send` — fan out SendGrid + push delivery for a meeting's confirmed tasks
+- `POST /api/comms/draft` — meeting context + confirmed tasks per recipient → LLM-drafted email bodies (no send)
+- `POST /api/comms/send` — fan out SendGrid + push delivery after user approval in the Comms tab
 - `POST /api/voice-profiles/*` — voice embedding bookkeeping (called from the sidecar/inference layer)
 
 ## 8. Auth + Keychain layout

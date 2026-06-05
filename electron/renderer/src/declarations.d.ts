@@ -43,7 +43,10 @@ interface ElectronAPI {
   discardRecording: () => Promise<unknown>
   updateTitle: (payload: { meetingId: string; title: string }) => Promise<unknown>
   confirmTasks: (payload: unknown) => Promise<unknown>
-  sendComms: (payload: unknown) => Promise<unknown>
+  sendComms: (payload: { meetingId: string }) => Promise<{ sent: string[]; failed: string[] }>
+  updateCommMessage: (payload: { commId: string; messageBody: string }) => Promise<void>
+  updateCommRecipient: (payload: { commId: string; email?: string | null; send?: boolean }) => Promise<void>
+  setCommChannel: (payload: { commId: string; channel: 'push' | 'email' | 'both' }) => Promise<void>
   labelSpeakers: (payload: unknown) => Promise<unknown>
   confirmSpeaker: (payload: unknown) => Promise<unknown>
   resolveSpeaker: (payload: unknown) => Promise<unknown>
@@ -74,6 +77,19 @@ interface ElectronAPI {
     }>;
     hasExtractedTasks: boolean;
     hasDismissedTasks: boolean;
+    comms: Array<{
+      id: string;
+      recipientSpeakerId: string;
+      recipientName: string | null;
+      messageBody: string;
+      deliveryChannel: 'push' | 'email' | 'both';
+      recipientEmail: string | null;
+      hasCornflake: boolean;
+      includeInstallInvite: boolean;
+      send: boolean;
+      sentAt: number | null;
+      sendError: string | null;
+    }>;
     speakers: Array<{ id: string; name: string | null; isSelf: boolean; confidence: string | null; deepgramId: string | null }>;
     utterances: Array<{ id: string; text: string; startMs: number; speakerName: string | null }>;
   } | null>

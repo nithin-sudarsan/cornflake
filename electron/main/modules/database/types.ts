@@ -112,10 +112,25 @@ export interface MeetingDetailData {
   summary: string | null
   decisions: { id: string; text: string; confidence: 'high' | 'medium' | 'low' | null }[]
   pendingTasks: TaskForApproval[]
-  hasExtractedTasks: boolean    // true if any tasks (any status) exist for this meeting
-  hasDismissedTasks: boolean    // true if dismissed tasks exist (restore button shown)
+  hasExtractedTasks: boolean
+  hasDismissedTasks: boolean
+  comms: MeetingCommDetail[]
   speakers: { id: string; name: string | null; isSelf: boolean }[]
   utterances: { id: string; text: string; startMs: number; speakerName: string | null }[]
+}
+
+export interface MeetingCommDetail {
+  id: string
+  recipientSpeakerId: string
+  recipientName: string | null
+  messageBody: string
+  deliveryChannel: DeliveryChannel
+  recipientEmail: string | null
+  hasCornflake: boolean
+  includeInstallInvite: boolean
+  send: boolean
+  sentAt: number | null
+  sendError: string | null
 }
 
 export interface Decision {

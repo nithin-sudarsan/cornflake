@@ -155,6 +155,21 @@ function matchSpeakerByName(name: string | null, speakers: Speaker[]): string | 
   return partial?.id ?? null
 }
 
+function isApprovedForComms(status: string): boolean {
+  return status === 'pending' || status === 'confirmed'
+}
+
+function resolveAssigneeSpeakerId(
+  assigneeName: string | null | undefined,
+  speakers: Speaker[],
+): string | null {
+  const matched = matchSpeakerByName(assigneeName ?? null, speakers)
+  if (matched) return matched
+  const self = speakers.find(s => s.isSelf)
+  if (!assigneeName?.trim() && self) return self.id
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Comms copy — context-aware LLM draft (fallback template if backend unavailable)
 // ---------------------------------------------------------------------------
@@ -325,9 +340,7 @@ export async function runExtractionPipeline(
 
     return {
       meetingId,
-      // assigneeSpeakerId always null in v1 — tasks are implicitly the user's.
-      // Column kept in DB so we can bring multi-player back in v2 without a migration.
-      assigneeSpeakerId:    null,
+      assigneeSpeakerId:    resolveAssigneeSpeakerId(t.assigneeName, speakers),
       title:                t.title.slice(0, 200),
       deadlineText:         t.deadlineText ?? null,
       deadlineMs,
@@ -425,10 +438,14 @@ export async function generateCommsForMeeting(
 
   const speakers   = db.getSpeakersByMeeting(meetingId)
   const utterances = db.getUtterancesByMeeting(meetingId)
-  const assignees  = speakers.filter(s => !s.isSelf && s.name !== null)
+
+  const assignees = speakers.filter(s => {
+    if (s.isSelf) return false
+    return db.getTasksBySpeaker(meetingId, s.id).some(t => isApprovedForComms(t.status))
+  })
 
   if (assignees.length === 0) {
-    console.log('[llm-extraction] No named assignees — skipping comms draft')
+    console.log('[llm-extraction] No approved tasks for external assignees — skipping comms draft')
     return []
   }
 
@@ -436,12 +453,12 @@ export async function generateCommsForMeeting(
 
   const recipientsWithTasks = assignees.flatMap(assignee => {
     const tasks = db.getTasksBySpeaker(meetingId, assignee.id)
-      .filter(t => t.status === 'confirmed')
+      .filter(t => isApprovedForComms(t.status))
     return tasks.length > 0 ? [{ assignee, tasks }] : []
   })
 
   if (recipientsWithTasks.length === 0) {
-    console.log('[llm-extraction] No confirmed tasks for external assignees — skipping comms draft')
+    console.log('[llm-extraction] No approved tasks for external assignees — skipping comms draft')
     return []
   }
 
@@ -456,8 +473,9 @@ export async function generateCommsForMeeting(
 
   for (const { assignee, tasks } of recipientsWithTasks) {
     const taskSummaries = tasks.map(t => ({ title: t.title, deadlineText: t.deadlineText }))
+    const recipientLabel = assignee.name ?? 'there'
     const message = draftedBodies.get(assignee.id)
-      ?? buildCommsMessageFallback(assignee.name!, meeting.title, taskSummaries)
+      ?? buildCommsMessageFallback(recipientLabel, meeting.title, taskSummaries)
 
     newComms.push({
       meetingId,
@@ -534,7 +552,7 @@ export async function regenerateTasksForMeeting(
       : 'medium'
     return {
       meetingId,
-      assigneeSpeakerId:    null,   // v1 single-player — no assignee
+      assigneeSpeakerId:    resolveAssigneeSpeakerId(t.assigneeName, speakers),
       title:                t.title.slice(0, 200),
       deadlineText:         t.deadlineText ?? null,
       deadlineMs,

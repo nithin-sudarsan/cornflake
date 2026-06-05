@@ -626,6 +626,13 @@ export function buildQueries(db: Database.Database) {
     if (row) _onWrite?.('comms', row as unknown as Record<string, unknown>)
   }
 
+  function updateCommRecipientEmail(commId: string, email: string | null): void {
+    db.prepare(`UPDATE comms SET recipient_email = ?, updated_at = ? WHERE id = ?`)
+      .run(email, now(), commId)
+    const row = db.prepare(`SELECT * FROM comms WHERE id = ?`).get(commId)
+    if (row) _onWrite?.('comms', row as unknown as Record<string, unknown>)
+  }
+
   function markCommSent(commId: string): void {
     db.prepare(`UPDATE comms SET sent_at = ?, send_error = NULL, updated_at = ? WHERE id = ?`)
       .run(now(), now(), commId)
@@ -903,6 +910,8 @@ export function buildQueries(db: Database.Database) {
       `SELECT COUNT(*) as cnt FROM tasks WHERE meeting_id = ? AND status = 'dismissed'`
     ).get(meetingId) as { cnt: number }).cnt
 
+    const commRows = getCommsByMeeting(meetingId)
+
     return {
       id:        meeting.id,
       title:     meeting.title,
@@ -927,6 +936,28 @@ export function buildQueries(db: Database.Database) {
         extractionConfidence: r.extraction_confidence as Confidence | null,
         note:                r.note,
       })),
+      comms: commRows.map(c => {
+        const sp = speakers.find(s => s.id === c.recipientSpeakerId)
+        const remoteIdx = sp && !sp.isSelf && sp.name === null
+          ? unresolvedIdx.get(sp.id)
+          : null
+        const recipientName = sp?.isSelf || sp?.deepgramId === null
+          ? (sp?.name ?? 'You')
+          : (sp?.name ?? (remoteIdx != null ? `Speaker ${remoteIdx}` : null))
+        return {
+          id:                   c.id,
+          recipientSpeakerId:   c.recipientSpeakerId,
+          recipientName,
+          messageBody:          c.messageBody,
+          deliveryChannel:      c.deliveryChannel,
+          recipientEmail:       c.recipientEmail ?? sp?.email ?? null,
+          hasCornflake:         c.hasCornflake,
+          includeInstallInvite: c.includeInstallInvite,
+          send:                 c.send,
+          sentAt:               c.sentAt,
+          sendError:            c.sendError,
+        }
+      }),
       speakers: speakers.map(s => ({ id: s.id, name: s.name, isSelf: s.isSelf, confidence: s.confidence, deepgramId: s.deepgramId })),
       utterances: utterances.map(u => ({
         id:          u.id,
@@ -1248,6 +1279,7 @@ export function buildQueries(db: Database.Database) {
     updateCommMessage,
     setCommSend,
     setCommDeliveryChannel,
+    updateCommRecipientEmail,
     markCommSent,
     markCommFailed,
     getCommsByMeeting,

@@ -34,7 +34,7 @@ export async function sendComms(meetingId: string): Promise<CommsSendResult> {
     }
 
     const tasks = db.getTasksBySpeaker(meetingId, c.recipientSpeakerId)
-      .filter(t => t.status === 'confirmed')
+      .filter(t => t.status === 'pending' || t.status === 'confirmed')
       .map(t => ({ title: t.title, deadlineText: t.deadlineText }))
 
     return [{

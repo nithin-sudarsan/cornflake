@@ -41,7 +41,7 @@ cornflake-api/
 │   │   ├── transcribe.ts        # /api/transcribe
 │   │   ├── extract.ts           # /api/extract
 │   │   ├── sync.ts              # /api/sync/*
-│   │   ├── comms.ts             # /api/comms/send
+│   │   ├── comms.ts             # /api/comms/draft, /api/comms/send
 │   │   └── voiceProfiles.ts     # /api/voice-profiles/*
 │   ├── services/
 │   │   ├── deepgram.ts          # Deepgram client
@@ -339,13 +339,36 @@ export default router
 ### src/routes/comms.ts
 ```typescript
 import { Router } from 'express'
-import { sendTaskNotification } from '../services/sendgrid'
+import { draftTaskEmails, sendTaskNotification } from '../services/sendgrid'
 
 const router = Router()
 
+// Draft only — called after tasks:confirm; never sends email
+router.post('/draft', async (req, res) => {
+  const { meetingTitle, meetingSummary, recipients } = req.body
+  // recipients: [{
+  //   speakerId, name, email,
+  //   tasks: [{ title, deadlineText, transcriptQuote, note }],
+  //   transcriptExcerpt: string
+  // }]
+
+  try {
+    const drafts = await draftTaskEmails({
+      meetingTitle,
+      meetingSummary,
+      recipients,
+    })
+    // drafts: [{ speakerId, messageBody }]
+    res.json({ drafts })
+  } catch (err) {
+    res.status(500).json({ error: 'Comms draft failed' })
+  }
+})
+
 router.post('/send', async (req, res) => {
   const { recipients } = req.body
-  // recipients: [{ email, name, tasks, meetingTitle, includeInstallInvite }]
+  // recipients: [{ email, name, messageBody, tasks, meetingTitle, includeInstallInvite }]
+  // messageBody is the user-edited draft from the Comms tab (approval gate on client)
 
   try {
     const results = await Promise.allSettled(

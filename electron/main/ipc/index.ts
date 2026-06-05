@@ -539,6 +539,43 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return result
   })
 
+  ipcMain.handle(RENDERER_CHANNELS.COMMS_UPDATE_MESSAGE, async (
+    _event,
+    payload: { commId: string; messageBody: string },
+  ) => {
+    getDb().updateCommMessage(payload.commId, payload.messageBody)
+    return null
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.COMMS_UPDATE_RECIPIENT, async (
+    _event,
+    payload: { commId: string; email?: string | null; send?: boolean },
+  ) => {
+    const db = getDb()
+    if (payload.email !== undefined) db.updateCommRecipientEmail(payload.commId, payload.email)
+    if (payload.send !== undefined) db.setCommSend(payload.commId, payload.send)
+    return null
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.COMMS_SET_CHANNEL, async (
+    _event,
+    payload: { commId: string; channel: 'push' | 'email' | 'both' },
+  ) => {
+    getDb().setCommDeliveryChannel(payload.commId, payload.channel)
+    return null
+  })
+
+  async function draftCommsAfterTaskApproval(taskIds: string[]): Promise<void> {
+    if (taskIds.length === 0) return
+    const task = getDb().getTaskById(taskIds[0])
+    if (!task?.meetingId) return
+    try {
+      await generateCommsForMeeting(task.meetingId)
+    } catch (err) {
+      console.error('[comms] Failed to draft after task approval:', err)
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Module 6 — Speaker labelling + voice profile update
   // ---------------------------------------------------------------------------
@@ -761,7 +798,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   // Approve + dismiss tasks from the meeting detail action items section.
-  // Does not generate comms — that's handled separately if/when the comms flow is built.
+  // Drafts comms for external assignees after approval (user sends from Comms section).
   ipcMain.handle(RENDERER_CHANNELS.TASKS_APPROVE_DISMISS, async (
     _event,
     payload: { approvedIds: string[]; dismissedIds: string[] }
@@ -769,6 +806,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const db = getDb()
     for (const id of (payload.approvedIds  ?? [])) db.confirmTask(id)
     for (const id of (payload.dismissedIds ?? [])) db.dismissTask(id)
+    await draftCommsAfterTaskApproval(payload.approvedIds ?? [])
     return null
   })
 
@@ -778,10 +816,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     payload: { approvals: { id: string; listName: string }[]; dismissedIds: string[] }
   ) => {
     const db = getDb()
+    const approvedIds: string[] = []
     for (const { id, listName } of (payload.approvals ?? [])) {
       db.approveTaskToList(id, listName)
+      approvedIds.push(id)
     }
     for (const id of (payload.dismissedIds ?? [])) db.dismissTask(id)
+    await draftCommsAfterTaskApproval(approvedIds)
     return null
   })
 }

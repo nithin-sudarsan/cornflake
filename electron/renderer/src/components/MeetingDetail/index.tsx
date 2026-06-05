@@ -10,6 +10,7 @@ import {
   type MeetingDetailData,
   type TaskForApproval,
 } from '../../hooks/useIPC'
+import { CommsSection } from '../CommsTab'
 
 interface MeetingDetailProps {
   meetingId: string
@@ -433,8 +434,7 @@ function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyCh
   function getTaskList(id: string) { return taskLists.get(id) ?? 'Reminders' }
 
   function handleDismiss(id: string) {
-    approveDismiss([], [id]).catch(() => {})
-    onAnyChange?.()
+    approveDismiss([], [id]).then(() => onAnyChange?.()).catch(() => {})
     setDismissing(prev => new Set(prev).add(id))
     setTimeout(() => {
       setDismissed(prev => new Set(prev).add(id))
@@ -443,13 +443,17 @@ function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyCh
     }, 350)
   }
 
-  function handleApprove(ids: string[]) {
+  async function handleApprove(ids: string[]) {
     const toApprove = ids.filter(id => !dismissed.has(id) && !exiting.has(id))
     if (toApprove.length === 0) return
 
     const approvals = toApprove.map(id => ({ id, listName: getTaskList(id) }))
-    approveWithLists(approvals, []).catch(() => {})
-    onAnyChange?.()
+    try {
+      await approveWithLists(approvals, [])
+      onAnyChange?.()
+    } catch {
+      return
+    }
 
     setExiting(prev => { const n = new Set(prev); toApprove.forEach(id => n.add(id)); return n })
     setChecked(prev => { const n = new Set(prev); toApprove.forEach(id => n.delete(id)); return n })
@@ -461,12 +465,15 @@ function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyCh
     }, EXIT_DURATION_MS)
   }
 
-  function handleBulkDismiss(ids: string[]) {
+  async function handleBulkDismiss(ids: string[]) {
     const toDismiss = ids.filter(id => !dismissed.has(id) && !exiting.has(id))
     if (toDismiss.length === 0) return
-    // Persist all at once
-    approveWithLists([], toDismiss).catch(() => {})
-    onAnyChange?.()
+    try {
+      await approveWithLists([], toDismiss)
+      onAnyChange?.()
+    } catch {
+      return
+    }
     // Animate each row out individually
     toDismiss.forEach(id => {
       setDismissing(prev => new Set(prev).add(id))
@@ -950,6 +957,17 @@ export default function MeetingDetail({ meetingId, onBack, onTasksApproved, onDe
               >
                 {restoring ? 'Restoring…' : 'Restore dismissed items'}
               </button>
+            </>
+          )}
+
+          {detail.pendingTasks.length === 0 && detail.comms.length > 0 && (
+            <>
+              <div style={divider} />
+              <CommsSection
+                meetingId={detail.id}
+                comms={detail.comms}
+                onChanged={loadDetail}
+              />
             </>
           )}
 

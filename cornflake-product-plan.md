@@ -63,7 +63,9 @@ Inspired by iPhone Reminders — dead simple.
 The growth engine of the app.
 
 - Identifies participants (speakers in the transcript) and people mentioned by name
-- Sends each relevant person their task or reminder with context
+- After the host confirms tasks, the app **drafts** one email per assignee using meeting transcript context (not a fixed template)
+- Host **reviews and edits** drafts in the Comms tab, fixes missing emails, and toggles who receives a message
+- **Nothing is sent until the host explicitly approves** (Send button on the Comms tab)
 - Message framing matters: should feel like a colleague sent it, not an automated notification. Example: *"John mentioned you'll send the brief by Friday — Cornflake is tracking it for him."*
 - If the recipient doesn't have Cornflake installed, they receive an install invite alongside the reminder
 - Every outbound notification to a non-user is a low-friction install prompt
@@ -226,7 +228,7 @@ The central hub of the app. A two-column Electron window that opens after "Stop 
   - Amber "No deadline detected" warning where applicable
   - Edit pencil icon — opens Screen 3
 - "+ Add task manually" link at the bottom of the list
-- "Dismiss all" (bottom left) and "Confirm & send" (bottom right) — the single commit action
+- "Dismiss all" (bottom left) and "Confirm tasks" (bottom right) — saves task decisions and **drafts** comms messages (does not send email)
 
 **Right column — meeting notes (always visible):**
 - Persistent across both tabs — always in view for reference
@@ -234,7 +236,7 @@ The central hub of the app. A two-column Electron window that opens after "Stop 
 - Edit pencil in header for inline editing
 - "View full transcript" link at the bottom
 
-**Key principle:** Nothing is dispatched until "Confirm & send" is tapped. The entire left column is a staging area.
+**Key principle:** Nothing is dispatched until the host taps **Send** on the Comms tab. Confirming tasks only stages drafts; the left column is a review area for both tabs.
 
 ---
 
@@ -268,7 +270,8 @@ Opens from the edit pencil on any task card. A narrower modal-style panel.
 Accessed via the Comms tab on Screen 2. Same two-column layout.
 
 **Left column — participant notification cards:**
-- Intro banner: "These messages will be sent to participants with tasks assigned to them. Review before sending."
+- Intro banner: "Drafts were generated from your meeting. Review and edit before sending."
+- Drafts appear after **Confirm tasks** on the Tasks tab (`POST /api/comms/draft` on the backend)
 - One card per participant who has tasks assigned, showing:
   - Avatar + name
   - App status: green "Has Cornflake" or amber "No Cornflake — will get invite"
@@ -277,6 +280,7 @@ Accessed via the Comms tab on Screen 2. Same two-column layout.
   - "Edit message" link for copy tweaks
 - For non-app users: an "Install Cornflake invite included" pill appears inside their message preview
 - Delivery channel selector (global for the meeting): Push notification / Email / Both
+- Footer: **Send** (primary) — explicit approval gate; calls `comms:send` and only then hits SendGrid / push
 
 **Key principles:**
 - Each participant only sees their own tasks — not the full list or other people's items
@@ -293,7 +297,7 @@ Some resolved during wireframing, some still open:
 **Resolved:**
 - Comms delivery: Push notification for app users, email for non-app users, with a "Both" option. Per-meeting global setting, not per-participant.
 - Review screen timing: Triggered when user clicks "Stop and review" from the menu bar dropdown — not automatic.
-- Comms copy: Messages are pre-written by AI in a human tone, editable before sending. Each recipient only sees their own tasks.
+- Comms copy: Messages are **drafted by AI from transcript context** after task confirm, editable before sending. Each recipient only sees their own tasks. Send requires a separate explicit action on the Comms tab.
 - **Calendar integration:** Optional, not required. App is fully functional without it. When connected (Google Calendar, OAuth read-only), unlocks: pre-meeting notifications 1 min before events, automatic meeting title, and attendee list as candidate set for speaker inference. When not connected, user starts recording manually via "Start listening" in the menu bar dropdown.
 - **Auto-start recording:** No auto-start in either mode. Calendar-connected users get a notification prompt 1 min before; manual users click "Start listening" themselves.
 - **Offline/in-person meetings:** Plain tasks based on the transcript. No participants or routing/assigning it to others automatically. Although user must be able to add email id of the person who the reminder/task should be routed to and then send it.

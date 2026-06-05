@@ -130,6 +130,20 @@ export interface PastMeeting {
   participants: string[]
 }
 
+export interface MeetingCommDetail {
+  id: string
+  recipientSpeakerId: string
+  recipientName: string | null
+  messageBody: string
+  deliveryChannel: 'push' | 'email' | 'both'
+  recipientEmail: string | null
+  hasCornflake: boolean
+  includeInstallInvite: boolean
+  send: boolean
+  sentAt: number | null
+  sendError: string | null
+}
+
 export interface MeetingDetailData {
   id: string
   title: string
@@ -140,6 +154,7 @@ export interface MeetingDetailData {
   pendingTasks: TaskForApproval[]
   hasExtractedTasks: boolean
   hasDismissedTasks: boolean
+  comms: MeetingCommDetail[]
   speakers: {
     id: string
     name: string | null
@@ -284,6 +299,42 @@ export function useApproveWithLists() {
     dismissedIds: string[],
   ): Promise<void> => {
     return window.electronAPI.approveWithLists({ approvals, dismissedIds })
+  }, [])
+}
+
+export interface CommsSendResult {
+  sent: string[]
+  failed: string[]
+}
+
+export function useSendComms() {
+  return useCallback(async (payload: { meetingId: string }): Promise<CommsSendResult> => {
+    return window.electronAPI.sendComms(payload) as Promise<CommsSendResult>
+  }, [])
+}
+
+export function useUpdateCommMessage() {
+  return useCallback(async (payload: { commId: string; messageBody: string }): Promise<void> => {
+    return window.electronAPI.updateCommMessage(payload)
+  }, [])
+}
+
+export function useUpdateCommRecipient() {
+  return useCallback(async (payload: { commId: string; email?: string | null; send?: boolean }): Promise<void> => {
+    return window.electronAPI.updateCommRecipient(payload)
+  }, [])
+}
+
+export function useSetCommChannel() {
+  return useCallback(async (payload: { commId: string; channel: 'push' | 'email' | 'both' }): Promise<void> => {
+    return window.electronAPI.setCommChannel(payload)
+  }, [])
+}
+
+export function useOnCommsSent() {
+  return useCallback((cb: (result: CommsSendResult) => void) => {
+    window.electronAPI.onCommsSent(cb as (payload: unknown) => void)
+    return () => window.electronAPI.removeAllListeners('comms:sent')
   }, [])
 }
 

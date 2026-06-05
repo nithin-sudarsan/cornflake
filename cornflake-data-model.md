@@ -204,6 +204,7 @@ CREATE TABLE comms (
 | `c_02` | `m_01` | `sp_03` | `email` | 0 | 1 | 1 | null |
 
 **Notes:**
+- **Lifecycle:** `message_body` is drafted after `tasks:confirm` via `POST /api/comms/draft` (LLM uses transcript excerpts + confirmed tasks). `sent_at` stays null until the user approves send on the Comms tab (`comms:send` → `POST /api/comms/send`). The edited draft is what gets sent — not a regeneration at dispatch time.
 - `message_body` is generated once by the LLM and then editable by the user before dispatch. The edited version is what gets stored and sent.
 - `send = 0` means the user unchecked this recipient. Row kept in DB but never dispatched.
 - `send_error` is populated if SendGrid or push notification fails. The post-send status screen reads this to surface failures.
@@ -416,7 +417,12 @@ GROUP BY c.id;
 **Task with no assignee**
 - `assignee_speaker_id` is null — happens if LLM extracts a task but cannot infer ownership
 - Rendered in the review screen with "Unassigned" and an amber warning
-- User must assign before confirming — "Confirm & send" blocked if any confirmed task has null assignee
+- User must assign before confirming tasks — confirm is blocked if any kept task has null assignee
+
+**Comms draft (after task confirm, before send)**
+- `generateCommsForMeeting` calls `POST /api/comms/draft` with per-recipient transcript excerpts and confirmed tasks
+- Inserts `comms` rows with `sent_at = null` — no outbound email yet
+- User can edit `message_body`, `recipient_email`, and `send` flag in the Comms tab
 
 **Comms send failure**
 - `sent_at` remains null; `send_error` is populated
