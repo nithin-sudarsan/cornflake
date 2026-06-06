@@ -82,6 +82,7 @@ export const RENDERER_CHANNELS = {
   ACTION_CHAT:                 'action:chat',
   ACTION_SEND_EMAIL:           'action:sendEmail',
   ACTION_ADD_CALENDAR:         'action:addCalendar',
+  ACTION_LIST_PROJECTS:        'action:listProjects',
 } as const
 
 export type MainChannel = typeof MAIN_CHANNELS[keyof typeof MAIN_CHANNELS]

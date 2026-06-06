@@ -73,7 +73,7 @@ interface ClaudeProject {
   label:    string        // last path segment, for display
 }
 
-function listClaudeProjects(): ClaudeProject[] {
+export function listClaudeProjects(): ClaudeProject[] {
   const claudeDir = join(homedir(), '.claude', 'projects')
   if (!existsSync(claudeDir)) return []
   return readdirSync(claudeDir, { withFileTypes: true })
@@ -212,8 +212,10 @@ Any gotchas, dependencies, or open questions from the meeting.
 AVAILABLE CODE PROJECTS (from ~/.claude/projects/):
 ${projectsListText}
 
-Set claude_project_dir to the dirName of the project most relevant to this task, or null if none match.
-Pick based on: project name in meeting transcript, file paths mentioned, or repo name in task title.`
+DIRECTORY IDENTIFICATION RULES:
+- If the meeting transcript, task title, or participant context clearly names a project or repo that matches one of the above, set claude_project_dir to its dirName.
+- If you are NOT confident which project this task belongs to — because the project name is ambiguous, not mentioned, or matches multiple entries — set claude_project_dir to null AND in your message field briefly tell the user you are not sure which codebase to open. Do NOT list or enumerate candidate projects.
+- Never guess. A wrong directory is worse than asking.`
 
   const responseFormat = actionType === 'EMAIL'
     ? `{"message":"...","email_draft":{"to_name":"...","to_email":"...","subject":"...","body":"..."},"calendar_draft":null,"code_draft":null}`

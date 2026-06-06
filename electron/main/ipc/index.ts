@@ -31,7 +31,7 @@ import { runTranscriptionPipeline } from '../modules/transcription'
 import { inferSpeakers, updateVoiceProfiles } from '../modules/speaker-inference'
 import { runExtractionPipeline, generateCommsForMeeting } from '../modules/llm/extraction'
 import { showTaskNotifications, executeTaskAction } from '../modules/action-router'
-import { chatForAction, sendViaGmail, addGoogleCalendarEvent, launchClaudeCode } from '../modules/action-chat/index.js'
+import { chatForAction, sendViaGmail, addGoogleCalendarEvent, launchClaudeCode, listClaudeProjects } from '../modules/action-chat/index.js'
 import { sendComms } from '../modules/comms-dispatch'
 import { syncModule } from '../modules/sync'
 import { setRefreshHandler } from '../modules/api-client'
@@ -360,6 +360,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   }) => {
     const link = await addGoogleCalendarEvent(payload.title, payload.dateIso, payload.time, payload.durationMin, payload.description)
     return { success: true, link }
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.ACTION_LIST_PROJECTS, async () => {
+    return listClaudeProjects()
   })
 
   ipcMain.handle('action:launchClaude', async (_e, payload: {

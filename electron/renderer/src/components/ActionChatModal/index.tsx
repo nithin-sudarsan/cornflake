@@ -57,6 +57,7 @@ export default function ActionChatModal({ task, meetingId, onClose }: ActionChat
   const [acting, setActing]             = useState(false)
   const [done, setDone]                 = useState<string | null>(null)
   const [error, setError]               = useState<string | null>(null)
+  const [copied, setCopied]             = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const actionType = task.actionType as keyof typeof ACTION_META
@@ -297,8 +298,9 @@ export default function ActionChatModal({ task, meetingId, onClose }: ActionChat
               }}
             />
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 5 }}>
-              Passed as prompt to Claude Code
-              {codeDraft.claudeProjectDir ? ` · opens in ${codeDraft.claudeProjectDir.split('-').at(-1)}` : ''}
+              {codeDraft.claudeProjectDir
+                ? `Will be passed as prompt · opens in ${codeDraft.claudeProjectDir.split('-').at(-1)}`
+                : "Couldn't identify which project this belongs to — copy the prompt and paste it into your Claude Code instance"}
             </div>
           </div>
         )}
@@ -370,13 +372,27 @@ export default function ActionChatModal({ task, meetingId, onClose }: ActionChat
             )}
 
             {actionType === 'CLAUDE_CODE' && codeDraft && (
-              <button
-                onClick={handleCodeAction}
-                disabled={acting}
-                style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', backgroundColor: meta.btn, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: acting ? 0.6 : 1 }}
-              >
-                {acting ? 'Launching…' : 'Launch Claude Code'}
-              </button>
+              codeDraft.claudeProjectDir ? (
+                <button
+                  onClick={handleCodeAction}
+                  disabled={acting}
+                  style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', backgroundColor: meta.btn, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', opacity: acting ? 0.6 : 1 }}
+                >
+                  {acting ? 'Launching…' : 'Launch Claude Code'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(codeDraft.contextMd).then(() => {
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 2000)
+                    })
+                  }}
+                  style={{ width: '100%', padding: '9px 0', borderRadius: 8, border: 'none', backgroundColor: meta.btn, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+                >
+                  {copied ? 'Copied!' : 'Copy prompt'}
+                </button>
+              )
             )}
           </div>
         )}

@@ -62,6 +62,7 @@ const CH = {
   ACTION_CHAT:                 'action:chat',
   ACTION_SEND_EMAIL:           'action:sendEmail',
   ACTION_ADD_CALENDAR:         'action:addCalendar',
+  ACTION_LIST_PROJECTS:        'action:listProjects',
   // Main → Renderer
   MEETING_UPCOMING:        'meeting:upcoming',
   CALENDAR_EVENTS_UPDATED: 'calendar:eventsUpdated',
@@ -138,6 +139,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendEmail:               (payload: unknown) => ipcRenderer.invoke(CH.ACTION_SEND_EMAIL, payload),
   addCalendarEvent:        (payload: unknown) => ipcRenderer.invoke(CH.ACTION_ADD_CALENDAR, payload),
   launchClaude:            (payload: unknown) => ipcRenderer.invoke('action:launchClaude', payload),
+  listClaudeProjects:      ()                 => ipcRenderer.invoke(CH.ACTION_LIST_PROJECTS),
   setTaskActionType:       (payload: { taskId: string; actionType: string }) => ipcRenderer.invoke(CH.TASK_SET_ACTION_TYPE, payload),
 
   // Main → Renderer (event subscriptions)
