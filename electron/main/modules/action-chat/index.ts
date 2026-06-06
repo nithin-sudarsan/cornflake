@@ -1,6 +1,6 @@
-import { httpsPost } from '../llm/utils.js'
 import { getDb } from '../database/index.js'
 import { LLM_MODEL } from '../../llm.config.js'
+import { apiPost } from '../api-client/index.js'
 import { getGoogleAccessToken, getGoogleRefreshToken, storeGoogleAccessToken } from '../auth/index.js'
 import { recallCalendarPreference, recallContact } from '../action-router/mubit-client.js'
 import { google } from 'googleapis'
@@ -163,9 +163,6 @@ export async function chatForAction(
   meetingId: string,
   messages: ChatMessage[],
 ): Promise<ChatResponse> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
-
   const db = getDb()
   const detail = db.getMeetingDetail(meetingId)
 
@@ -195,19 +192,13 @@ export async function chatForAction(
   let knownRecipientEmail: string | null = null
   if (actionType === 'EMAIL') {
     try {
-      const nameRaw = await httpsPost(
-        'api.anthropic.com',
-        '/v1/messages',
-        { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-        {
-          model: LLM_MODEL.claude,
-          max_tokens: 30,
-          system: 'Extract the person\'s name from this email task. Reply with the name only, or "none" if no person is mentioned.',
-          messages: [{ role: 'user', content: taskTitle }],
-        },
-      )
-      const extractedName = (JSON.parse(nameRaw) as { content?: Array<{ type: string; text: string }> })
-        .content?.find(b => b.type === 'text')?.text?.trim() ?? ''
+      const nameResult = await apiPost('/api/ai/messages', {
+        model: LLM_MODEL.claude,
+        max_tokens: 30,
+        system: 'Extract the person\'s name from this email task. Reply with the name only, or "none" if no person is mentioned.',
+        messages: [{ role: 'user', content: taskTitle }],
+      }) as { content?: Array<{ type: string; text: string }> }
+      const extractedName = nameResult.content?.find(b => b.type === 'text')?.text?.trim() ?? ''
       console.log(`[action-chat] extracted name from title "${taskTitle}" →`, JSON.stringify(extractedName))
       if (extractedName && extractedName.toLowerCase() !== 'none') {
         knownRecipientEmail = await recallContact(extractedName).catch(() => null)
@@ -296,19 +287,12 @@ Example: ${responseFormat}`
     ? messages
     : [{ role: 'user', content: `Help me action this task: "${taskTitle}"` }]
 
-  const raw = await httpsPost(
-    'api.anthropic.com',
-    '/v1/messages',
-    { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    {
-      model: LLM_MODEL.claude,
-      max_tokens: 1500,
-      system: systemPrompt,
-      messages: apiMessages,
-    },
-  )
-
-  const parsed = JSON.parse(raw) as {
+  const parsed = await apiPost('/api/ai/messages', {
+    model: LLM_MODEL.claude,
+    max_tokens: 1500,
+    system: systemPrompt,
+    messages: apiMessages,
+  }) as {
     content?: Array<{ type: string; text: string }>
     error?: { message: string }
   }
@@ -474,28 +458,19 @@ export async function classifyActionType(
   taskTitle: string,
   transcriptQuote?: string | null,
 ): Promise<'EMAIL' | 'CALENDAR' | 'CLAUDE_CODE'> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) return 'CALENDAR'
-
   const context = transcriptQuote ? `\nContext from meeting: "${transcriptQuote}"` : ''
-  const raw = await httpsPost(
-    'api.anthropic.com',
-    '/v1/messages',
-    { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    {
-      model: LLM_MODEL.claude,
-      max_tokens: 10,
-      system: `Classify meeting action items. Reply with exactly one word.
+  const classifyResult = await apiPost('/api/ai/messages', {
+    model: LLM_MODEL.claude,
+    max_tokens: 10,
+    system: `Classify meeting action items. Reply with exactly one word.
 
 EMAIL — send a message, follow up with someone, write an update, share info
 CALENDAR — schedule time, block calendar, set a meeting, book something, set a reminder
 CLAUDE_CODE — write code, fix a bug, implement a feature, open a PR, review code`,
-      messages: [{ role: 'user', content: `Task: "${taskTitle}"${context}` }],
-    },
-  )
+    messages: [{ role: 'user', content: `Task: "${taskTitle}"${context}` }],
+  }) as { content?: Array<{ type: string; text: string }> }
 
-  const text = (JSON.parse(raw) as { content?: Array<{ type: string; text: string }> })
-    .content?.find(b => b.type === 'text')?.text?.trim().toUpperCase() ?? ''
+  const text = classifyResult.content?.find(b => b.type === 'text')?.text?.trim().toUpperCase() ?? ''
 
   if (text.includes('EMAIL'))       return 'EMAIL'
   if (text.includes('CLAUDE_CODE') || text.includes('CODE')) return 'CLAUDE_CODE'
