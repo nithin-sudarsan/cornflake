@@ -18,8 +18,9 @@ export default function PaywallScreen({ onSubscriptionConfirmed }: Props) {
       await window.electronAPI.openExternal(url)
       setState('awaiting_payment')
     } catch (err) {
-      console.error('[PaywallScreen] createCheckoutSession failed:', err)
-      setErrorMsg('Could not open checkout. Please try again.')
+      const msg = (err as Error).message ?? ''
+      console.error('[PaywallScreen] createCheckoutSession failed:', msg)
+      setErrorMsg(msg || 'Could not open checkout. Please try again.')
       setState('error')
     }
   }
@@ -110,7 +111,7 @@ export default function PaywallScreen({ onSubscriptionConfirmed }: Props) {
             color: 'var(--color-white)',
             letterSpacing: '-0.02em',
           }}>
-            $10
+            £10
           </span>
           <span style={{
             fontSize: 14,

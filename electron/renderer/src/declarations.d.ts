@@ -127,6 +127,8 @@ interface ElectronAPI {
   onTrayRequestStop: (cb: () => void) => void
   onTrayRequestDiscard: (cb: () => void) => void
   removeAllListeners: (channel: string) => void
+  getSubscriptionStatus: () => Promise<{ status: string }>
+  createCheckoutSession: () => Promise<{ url: string }>
 }
 
 interface Window {
