@@ -12,7 +12,7 @@
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _client: any = null
 let _userId: string | null = null
-// const _contactCache = new Map<string, string>()
+const _contactCache = new Map<string, string>()
 
 export async function initMubit(): Promise<void> {
   if (!process.env.MUBIT_API_KEY) {
@@ -177,7 +177,7 @@ export async function recordHistoricalCalendarEvent(evt: HistoricalCalendarEvent
 // ---------------------------------------------------------------------------
 
 export async function recordContactMapping(name: string, email: string): Promise<void> {
-  // _contactCache.set(name.trim().toLowerCase(), email.trim().toLowerCase())
+  _contactCache.set(name.trim().toLowerCase(), email.trim())
   if (!_client) return
   try {
     await _client.remember({
@@ -194,8 +194,8 @@ export async function recordContactMapping(name: string, email: string): Promise
 }
 
 export async function recallContact(name: string): Promise<string | null> {
-  // const cached = _contactCache.get(name.trim().toLowerCase())
-  // if (cached) return cached
+  const cached = _contactCache.get(name.trim().toLowerCase())
+  if (cached) return cached
   if (!_client) return null
   try {
     const result = await _client.recall({
