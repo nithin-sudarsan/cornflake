@@ -24,7 +24,7 @@ app.setName('Cornflake')
 import { registerIpcHandlers, registerTrayHooks } from './ipc'
 import { initDatabase, closeDatabase } from './modules/database'
 import { primeFromKeychain } from './modules/auth'
-import { initMubit } from './modules/action-router/mubit-client'
+import { initMubit, setMubitUser } from './modules/action-router/mubit-client'
 import { initUpdater, stopUpdater } from './modules/updater'
 import {
   startCalendarWatcher,
@@ -104,6 +104,7 @@ function handleFallbackDeepLink(url: string): void {
     handleCallback(code, mainWindow)
       .then(async profile => {
         console.log('[auth] fallback deep link: signed in as', profile.email)
+        setMubitUser(profile.id)
         await broadcastAuthStatus(mainWindow!)
         // Calendar watcher start moved to renderer:ready handler — see ipc/index.ts.
         // The deep link flow triggers AUTH_LOGIN → authState transition → rendererReady
@@ -348,10 +349,16 @@ app.whenReady().then(async () => {
     console.error('[boot] primeFromKeychain failed:', (err as Error).message)
   )
 
-  // Initialise Mubit memory for the action router. No-op if package is absent.
+  // Initialise Mubit (pre-warms dynamic import). Client is created in setMubitUser().
   initMubit().catch(err =>
     console.warn('[boot] initMubit failed:', (err as Error).message)
   )
+  // If already authenticated, create the user-scoped Mubit client immediately.
+  try {
+    const { getDb } = await import('./modules/database/index.js')
+    const storedUserId = getDb().getMetaValue('workos_user_id')
+    if (storedUserId) setMubitUser(storedUserId).catch(() => { /* non-fatal */ })
+  } catch { /* not yet authenticated — setMubitUser called after login */ }
 
   // Set the macOS Dock icon. The .icns in package.json applies at build/launch
   // time; this call ensures the running-app Dock icon is also branded during

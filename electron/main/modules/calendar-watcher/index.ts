@@ -10,6 +10,7 @@ import {
 } from '../auth'
 import { MAIN_CHANNELS } from '../../ipc/types'
 import type { CalendarEvent } from '../../ipc/types'
+import { recordHistoricalCalendarEvent, recordContactMapping } from '../action-router/mubit-client.js'
 
 export interface AuthStatus {
   isConnected: boolean
@@ -339,6 +340,79 @@ export function resendCachedEventsToRenderer(win: BrowserWindow): void {
 // Public: start / stop watcher
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Historical calendar memory seeding (one-time, on first launch after Mubit init)
+// ---------------------------------------------------------------------------
+
+export async function seedHistoricalCalendarMemory(): Promise<void> {
+  const db = getDb()
+  if (db.getMetaValue('mubit_calendar_history_seeded')) return
+
+  const auth = await loadAuthClient()
+  if (!auth) return
+
+  const cal  = google.calendar({ version: 'v3', auth })
+  const now  = new Date()
+  const year = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)
+
+  let pageToken: string | undefined
+  let totalSeeded = 0
+
+  try {
+    do {
+      const res = await cal.events.list({
+        calendarId:   'primary',
+        timeMin:      year.toISOString(),
+        timeMax:      now.toISOString(),
+        singleEvents: true,
+        orderBy:      'startTime',
+        maxResults:   250,
+        pageToken,
+      })
+
+      const items = res.data.items ?? []
+      for (const event of items) {
+        if (!event.start?.dateTime) continue  // skip all-day events
+
+        const start       = new Date(event.start.dateTime)
+        const end         = event.end?.dateTime ? new Date(event.end.dateTime) : new Date(start.getTime() + 3600000)
+        const durationMin = Math.round((end.getTime() - start.getTime()) / 60000)
+
+        const selfEntry   = (event.attendees ?? []).find(a => a.self)
+        const rsvpStatus  = selfEntry?.responseStatus ?? 'accepted'
+        const hasAttendees = (event.attendees ?? []).filter(a => !a.self).length > 0
+
+        await recordHistoricalCalendarEvent({
+          title:        event.summary ?? '',
+          hourOfDay:    start.getHours(),
+          dayOfWeek:    start.getDay(),
+          durationMin,
+          hasAttendees,
+          rsvpStatus,
+          timestamp:    start.getTime(),
+        })
+
+        // Seed contact mappings from attendees
+        for (const attendee of event.attendees ?? []) {
+          if (!attendee.self && attendee.email && attendee.displayName) {
+            await recordContactMapping(attendee.displayName, attendee.email)
+          }
+        }
+
+        totalSeeded++
+      }
+
+      pageToken = res.data.nextPageToken ?? undefined
+    } while (pageToken)
+
+    db.setMetaValue('mubit_calendar_history_seeded', '1')
+    console.log(`[mubit] seeded ${totalSeeded} historical calendar events`)
+  } catch (err) {
+    console.warn('[mubit] Historical calendar seeding failed:', (err as Error).message)
+    // Do NOT set the flag — will retry on next launch
+  }
+}
+
 export function startCalendarWatcher(mainWindow: BrowserWindow): void {
   _mainWindow = mainWindow
   if (_pollTimer) return // already running — log nothing, this is the no-op path
@@ -350,6 +424,11 @@ export function startCalendarWatcher(mainWindow: BrowserWindow): void {
   poll()
   sendDisplayEventsToRenderer(mainWindow)
   _pollTimer = setInterval(poll, 60 * 1000)
+
+  // One-time historical seeding: runs in background, never blocks the watcher
+  seedHistoricalCalendarMemory().catch(err =>
+    console.warn('[mubit] seedHistoricalCalendarMemory failed:', (err as Error).message)
+  )
 }
 
 export function stopCalendarWatcher(): void {

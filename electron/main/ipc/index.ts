@@ -31,7 +31,8 @@ import { runTranscriptionPipeline } from '../modules/transcription'
 import { inferSpeakers, updateVoiceProfiles } from '../modules/speaker-inference'
 import { runExtractionPipeline, generateCommsForMeeting } from '../modules/llm/extraction'
 import { showTaskNotifications, executeTaskAction } from '../modules/action-router'
-import { chatForAction, sendViaGmail, addGoogleCalendarEvent, launchClaudeCode, listClaudeProjects } from '../modules/action-chat/index.js'
+import { recordCalendarBlock, recordContactMapping, setMubitUser } from '../modules/action-router/mubit-client.js'
+import { chatForAction, sendViaGmail, addGoogleCalendarEvent, launchClaudeCode, listClaudeProjects, classifyActionType } from '../modules/action-chat/index.js'
 import { sendComms } from '../modules/comms-dispatch'
 import { syncModule } from '../modules/sync'
 import { setRefreshHandler, apiGet, apiPost } from '../modules/api-client'
@@ -335,6 +336,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     const session   = _activeSession
     const fromName  = session?.name ?? session?.email ?? 'Cornflake User'
     const fromEmail = session?.email ?? ''
+    if (payload.toName && payload.toEmail) {
+      recordContactMapping(payload.toName, payload.toEmail).catch(() => {})
+    }
     try {
       await sendViaGmail(payload.toName, payload.toEmail, payload.subject, payload.body, fromName, fromEmail)
       return { success: true, method: 'gmail' }
@@ -359,6 +363,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     title: string; dateIso: string; time: string; durationMin: number; description: string
   }) => {
     const link = await addGoogleCalendarEvent(payload.title, payload.dateIso, payload.time, payload.durationMin, payload.description)
+    const [hourStr] = payload.time.split(':')
+    recordCalendarBlock({
+      taskTitle:   payload.title,
+      actionType:  'CALENDAR',
+      dateIso:     payload.dateIso,
+      time:        payload.time,
+      hourOfDay:   parseInt(hourStr ?? '9', 10),
+      dayOfWeek:   new Date(payload.dateIso).getDay(),
+      durationMin: payload.durationMin,
+      outcome:     'confirmed',
+    }).catch(err => console.warn('[mubit] calendar block record failed:', err))
     return { success: true, link }
   })
 
@@ -382,6 +397,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       // 1. Cache session in memory so future renderer:ready calls (Cmd+R) skip
       //    Keychain + sync re-init.
       _activeSession = profile
+      setMubitUser(profile.id)
       _bootSyncStarted = true
       _setTrayAuth(true)
 
@@ -619,6 +635,12 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     db.bulkResolveSpeakers(payload.resolutions)
     db.setMeetingRequiresLabelling(payload.meetingId, false)
     console.log(`[speakers:label] Resolved ${payload.resolutions.length} speaker(s) for meeting ${payload.meetingId}`)
+    for (const r of payload.resolutions) {
+      if (r.email) {
+        recordContactMapping(r.name, r.email)
+          .catch(err => console.warn('[mubit] contact record failed:', err))
+      }
+    }
 
     // Now that all speakers are named, run LLM extraction
     runExtractionPipeline(payload.meetingId)
@@ -675,6 +697,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ) => {
     const db = getDb()
     db.bulkResolveSpeakers([{ speakerId: payload.speakerId, name: payload.name, email: payload.email }])
+    if (payload.email) {
+      recordContactMapping(payload.name, payload.email)
+        .catch(err => console.warn('[mubit] contact record failed:', err))
+    }
     // Re-check if any speakers remain unresolved
     const remaining = db.getSpeakersByMeeting(payload.meetingId).filter(s => !s.isSelf && s.name === null)
     db.setMeetingRequiresLabelling(payload.meetingId, remaining.length > 0)
@@ -821,6 +847,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ) => {
     getDb().setTaskActionType(payload.taskId, payload.actionType as any)
     return null
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.TASK_CLASSIFY_ACTION_TYPE, async (
+    _event,
+    payload: { taskTitle: string; transcriptQuote?: string | null }
+  ) => {
+    return classifyActionType(payload.taskTitle, payload.transcriptQuote)
   })
 
   ipcMain.handle(RENDERER_CHANNELS.TASKS_UPDATE, async (
