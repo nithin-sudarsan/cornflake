@@ -34,7 +34,7 @@ import { showTaskNotifications, executeTaskAction } from '../modules/action-rout
 import { chatForAction, sendViaGmail, addGoogleCalendarEvent, launchClaudeCode, listClaudeProjects } from '../modules/action-chat/index.js'
 import { sendComms } from '../modules/comms-dispatch'
 import { syncModule } from '../modules/sync'
-import { setRefreshHandler } from '../modules/api-client'
+import { setRefreshHandler, apiGet, apiPost } from '../modules/api-client'
 
 // Each handler is replaced with real implementations as modules are built.
 
@@ -861,5 +861,19 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     }
     for (const id of (payload.dismissedIds ?? [])) db.dismissTask(id)
     return null
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.BILLING_GET_STATUS, async () => {
+    try {
+      return await apiGet('/api/billing/subscription-status')
+    } catch (err) {
+      console.error('[ipc] billing:getStatus error:', err)
+      // Fail open — don't block app access if billing API is unreachable
+      return { status: 'active' }
+    }
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.BILLING_CREATE_CHECKOUT, async () => {
+    return await apiPost('/api/billing/create-checkout-session', {})
   })
 }
