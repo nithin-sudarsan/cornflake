@@ -1,6 +1,25 @@
 import { getDb } from '../database/index.js'
 import { LLM_MODEL } from '../../llm.config.js'
 import { apiPost } from '../api-client/index.js'
+import { httpsPost } from '../llm/utils.js'
+
+type AnthropicResponse = { content?: Array<{ type: string; text: string }>; error?: { message: string } }
+
+// In dev: ANTHROPIC_API_KEY in .env → call Anthropic directly (no backend needed).
+// In packaged builds: key is absent → route through the backend proxy.
+async function callAnthropic(body: object): Promise<AnthropicResponse> {
+  const devKey = process.env.ANTHROPIC_API_KEY
+  if (devKey) {
+    const raw = await httpsPost(
+      'api.anthropic.com',
+      '/v1/messages',
+      { 'x-api-key': devKey, 'anthropic-version': '2023-06-01' },
+      body,
+    )
+    return JSON.parse(raw) as AnthropicResponse
+  }
+  return apiPost('/api/ai/messages', body) as Promise<AnthropicResponse>
+}
 import { getGoogleAccessToken, getGoogleRefreshToken, storeGoogleAccessToken } from '../auth/index.js'
 import { recallCalendarPreference, recallContact } from '../action-router/mubit-client.js'
 import { google } from 'googleapis'
@@ -192,7 +211,7 @@ export async function chatForAction(
   let knownRecipientEmail: string | null = null
   if (actionType === 'EMAIL') {
     try {
-      const nameResult = await apiPost('/api/ai/messages', {
+      const nameResult = await callAnthropic({
         model: LLM_MODEL.claude,
         max_tokens: 30,
         system: 'Extract the person\'s name from this email task. Reply with the name only, or "none" if no person is mentioned.',
@@ -287,7 +306,7 @@ Example: ${responseFormat}`
     ? messages
     : [{ role: 'user', content: `Help me action this task: "${taskTitle}"` }]
 
-  const parsed = await apiPost('/api/ai/messages', {
+  const parsed = await callAnthropic({
     model: LLM_MODEL.claude,
     max_tokens: 1500,
     system: systemPrompt,
@@ -459,7 +478,7 @@ export async function classifyActionType(
   transcriptQuote?: string | null,
 ): Promise<'EMAIL' | 'CALENDAR' | 'CLAUDE_CODE'> {
   const context = transcriptQuote ? `\nContext from meeting: "${transcriptQuote}"` : ''
-  const classifyResult = await apiPost('/api/ai/messages', {
+  const classifyResult = await callAnthropic({
     model: LLM_MODEL.claude,
     max_tokens: 10,
     system: `Classify meeting action items. Reply with exactly one word.
