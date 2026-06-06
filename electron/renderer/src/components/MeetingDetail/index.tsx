@@ -399,8 +399,9 @@ function ActionItemsSection({ tasks: initialTasks, speakers, meetingId, onApprov
   // Per-task target list (defaults to 'Reminders')
   const [taskLists, setTaskLists]     = useState<Map<string, string>>(new Map())
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null)
-  // Manually selected action types for null/REMINDER tasks
-  const [manualActionTypes, setManualActionTypes] = useState<Map<string, string>>(new Map())
+  // action type per task: starts from DB value, overridable by user or AI classification
+  const [actionTypes, setActionTypes] = useState<Map<string, string>>(new Map())
+  const [classifyingIds, setClassifyingIds] = useState<Set<string>>(new Set())
   const [availableLists, setAvailableLists] = useState<string[]>(['Reminders'])
 
   const updateTask       = useUpdateTask()
@@ -606,7 +607,7 @@ function ActionItemsSection({ tasks: initialTasks, speakers, meetingId, onApprov
                     {task.title}
                   </p>
 
-                  {/* Deadline + action type badge */}
+                  {/* Deadline + action type dropdown */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
                     {task.deadlineText ? (
                       <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{task.deadlineText}</span>
@@ -614,66 +615,50 @@ function ActionItemsSection({ tasks: initialTasks, speakers, meetingId, onApprov
                       <span style={{ fontSize: 11, color: '#f59e0b' }}>No deadline</span>
                     )}
                     {(() => {
-                      const resolved = task.actionType && task.actionType !== 'REMINDER'
-                        ? task.actionType
-                        : manualActionTypes.get(task.id) ?? null
-                      const needsPicker = !task.actionType || task.actionType === 'REMINDER'
+                      const current = actionTypes.get(task.id)
+                        ?? (task.actionType && task.actionType !== 'REMINDER' ? task.actionType : null)
 
-                      if (!needsPicker && resolved) {
-                        return (
-                          <span style={{
-                            fontSize: 10, fontWeight: 600, letterSpacing: '0.02em',
-                            padding: '1px 6px', borderRadius: 4,
-                            backgroundColor:
-                              resolved === 'EMAIL'       ? 'rgba(59,130,246,0.15)'  :
-                              resolved === 'CLAUDE_CODE' ? 'rgba(168,85,247,0.15)'  :
-                                                           'rgba(16,185,129,0.15)',
-                            color:
-                              resolved === 'EMAIL'       ? '#60a5fa' :
-                              resolved === 'CLAUDE_CODE' ? '#c084fc' :
-                                                           '#34d399',
-                          }}>
-                            {resolved === 'EMAIL'       ? '✉ Email'    :
-                             resolved === 'CLAUDE_CODE' ? '⌨ Code'     :
-                                                          '📅 Calendar'}
-                          </span>
-                        )
+                      // Trigger AI classification once for unclassified tasks
+                      if (!current && !classifyingIds.has(task.id)) {
+                        setClassifyingIds(prev => new Set(prev).add(task.id))
+                        ;(window as any).electronAPI?.classifyActionType({
+                          taskTitle: task.title,
+                          transcriptQuote: task.transcriptQuote ?? null,
+                        }).then((suggested: string) => {
+                          setActionTypes(prev => new Map(prev).set(task.id, suggested))
+                          ;(window as any).electronAPI?.setTaskActionType({ taskId: task.id, actionType: suggested })
+                        }).catch(() => {
+                          setActionTypes(prev => new Map(prev).set(task.id, 'CALENDAR'))
+                        })
                       }
 
-                      // Type picker for null / REMINDER tasks
+                      const value = current ?? ''
+                      const color = value === 'EMAIL' ? '#60a5fa' : value === 'CLAUDE_CODE' ? '#c084fc' : '#34d399'
+
                       return (
-                        <div style={{ display: 'flex', gap: 3 }}>
-                          {(['EMAIL', 'CLAUDE_CODE', 'CALENDAR'] as const).map(type => {
-                            const isSelected = manualActionTypes.get(task.id) === type
-                            return (
-                              <button
-                                key={type}
-                                onClick={e => {
-                                  e.stopPropagation()
-                                  const next = new Map(manualActionTypes)
-                                  next.set(task.id, type)
-                                  setManualActionTypes(next)
-                                  ;(window as any).electronAPI?.setTaskActionType({ taskId: task.id, actionType: type })
-                                }}
-                                style={{
-                                  fontSize: 9, fontWeight: 600, padding: '1px 5px',
-                                  borderRadius: 3, cursor: 'pointer',
-                                  border: isSelected
-                                    ? (type === 'EMAIL' ? '1px solid #60a5fa' : type === 'CLAUDE_CODE' ? '1px solid #c084fc' : '1px solid #34d399')
-                                    : '1px solid var(--color-divider)',
-                                  backgroundColor: isSelected
-                                    ? (type === 'EMAIL' ? 'rgba(59,130,246,0.2)' : type === 'CLAUDE_CODE' ? 'rgba(168,85,247,0.2)' : 'rgba(16,185,129,0.2)')
-                                    : 'transparent',
-                                  color: isSelected
-                                    ? (type === 'EMAIL' ? '#60a5fa' : type === 'CLAUDE_CODE' ? '#c084fc' : '#34d399')
-                                    : 'var(--color-text-muted)',
-                                }}
-                              >
-                                {type === 'EMAIL' ? '✉' : type === 'CLAUDE_CODE' ? '⌨' : '📅'}
-                              </button>
-                            )
-                          })}
-                        </div>
+                        <select
+                          value={value}
+                          onClick={e => e.stopPropagation()}
+                          onChange={e => {
+                            e.stopPropagation()
+                            const type = e.target.value
+                            setActionTypes(prev => new Map(prev).set(task.id, type))
+                            ;(window as any).electronAPI?.setTaskActionType({ taskId: task.id, actionType: type })
+                          }}
+                          style={{
+                            fontSize: 10, fontWeight: 600, padding: '1px 4px',
+                            borderRadius: 4, cursor: 'pointer', outline: 'none',
+                            border: `1px solid ${color}40`,
+                            backgroundColor: `${color}18`,
+                            color,
+                            appearance: 'none', WebkitAppearance: 'none',
+                          }}
+                        >
+                          {!value && <option value="" disabled>classifying…</option>}
+                          <option value="EMAIL">✉ Email</option>
+                          <option value="CALENDAR">📅 Calendar</option>
+                          <option value="CLAUDE_CODE">⌨ Code</option>
+                        </select>
                       )
                     })()}
                   </div>
@@ -732,9 +717,8 @@ function ActionItemsSection({ tasks: initialTasks, speakers, meetingId, onApprov
                 {/* Do it + edit + dismiss */}
                 <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
                   {(() => {
-                    const resolved = (task.actionType && task.actionType !== 'REMINDER')
-                      ? task.actionType
-                      : manualActionTypes.get(task.id) ?? null
+                    const resolved = actionTypes.get(task.id)
+                      ?? (task.actionType && task.actionType !== 'REMINDER' ? task.actionType : null)
                     if (!resolved) return null
                     return (
                       <button

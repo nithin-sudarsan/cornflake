@@ -2,6 +2,7 @@ import { httpsPost } from '../llm/utils.js'
 import { getDb } from '../database/index.js'
 import { LLM_MODEL } from '../../llm.config.js'
 import { getGoogleAccessToken, getGoogleRefreshToken, storeGoogleAccessToken } from '../auth/index.js'
+import { recallCalendarPreference, recallContact } from '../action-router/mubit-client.js'
 import { google } from 'googleapis'
 import type { OAuth2Client } from 'google-auth-library'
 import { execFile } from 'child_process'
@@ -168,13 +169,20 @@ export async function chatForAction(
   const db = getDb()
   const detail = db.getMeetingDetail(meetingId)
 
-  const speakerContext = (detail?.speakers ?? [])
-    .map(s => {
-      const sp = s as { id: string; name: string | null; isSelf: boolean; email?: string }
-      const emailPart = sp.email ? ` <${sp.email}>` : ''
-      return `- ${sp.name ?? 'Unknown'}${emailPart} (${sp.isSelf ? 'you' : 'remote participant'})`
-    })
-    .join('\n')
+  // Enrich speakers missing an email via Mubit contact-resolver before building the prompt
+  const speakerContext = (
+    await Promise.all(
+      (detail?.speakers ?? []).map(async s => {
+        const sp = s as { id: string; name: string | null; isSelf: boolean; email?: string }
+        let email = sp.email ?? null
+        if (!sp.isSelf && !email && sp.name) {
+          email = await recallContact(sp.name).catch(() => null)
+        }
+        const emailPart = email ? ` <${email}>` : ''
+        return `- ${sp.name ?? 'Unknown'}${emailPart} (${sp.isSelf ? 'you' : 'remote participant'})`
+      }),
+    )
+  ).join('\n')
 
   const transcriptContext = (detail?.utterances ?? [])
     .slice(0, 40)
@@ -183,15 +191,55 @@ export async function chatForAction(
 
   const today = new Date().toISOString().slice(0, 10)
 
+  // For EMAIL actions: use LLM to extract person names from the task title, then recall emails from Mubit
+  let knownRecipientEmail: string | null = null
+  if (actionType === 'EMAIL') {
+    try {
+      const nameRaw = await httpsPost(
+        'api.anthropic.com',
+        '/v1/messages',
+        { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        {
+          model: LLM_MODEL.claude,
+          max_tokens: 30,
+          system: 'Extract the person\'s name from this email task. Reply with the name only, or "none" if no person is mentioned.',
+          messages: [{ role: 'user', content: taskTitle }],
+        },
+      )
+      const extractedName = (JSON.parse(nameRaw) as { content?: Array<{ type: string; text: string }> })
+        .content?.find(b => b.type === 'text')?.text?.trim() ?? ''
+      console.log(`[action-chat] extracted name from title "${taskTitle}" →`, JSON.stringify(extractedName))
+      if (extractedName && extractedName.toLowerCase() !== 'none') {
+        knownRecipientEmail = await recallContact(extractedName).catch(() => null)
+        console.log(`[action-chat] knownRecipientEmail for "${extractedName}" →`, knownRecipientEmail)
+      }
+    } catch (err) {
+      console.warn('[action-chat] name extraction failed:', (err as Error).message)
+    }
+  }
+
   const emailInstructions = `Help draft a professional follow-up email.
-- Infer the recipient name and email from the participant list. If email is unknown, set to_email to "" and note this in your message.
+- Infer the recipient name from the task title and context.${knownRecipientEmail ? `\n- IMPORTANT: You MUST set to_email to exactly "${knownRecipientEmail}" in the JSON — this is the confirmed email for the recipient. Do not leave it blank.` : '\n- If email is unknown, set to_email to "" and note this in your message.'}
 - Reference specific details from the meeting transcript.
 - Keep the body concise (3-4 sentences). Sign off with the user's name if known.`
+
+  const calendarPref = actionType === 'CALENDAR'
+    ? await recallCalendarPreference(taskTitle, 'CALENDAR').catch(() => null)
+    : null
+
+  const calendarHint =
+    calendarPref?.skipCalendar
+      ? '\nNote: This user rarely confirms calendar blocks for this task type — mention in your message that they can skip if not needed.'
+      : calendarPref?.alwaysAsk
+      ? '\nIMPORTANT: This user always changes the suggested time. Do NOT commit to a specific time — in your message field ask what time works for them. Use "09:00" as a placeholder in time field only.'
+      : calendarPref?.suggestHour !== undefined
+      ? `\nThis user typically schedules this type of work at ${String(calendarPref.suggestHour).padStart(2, '0')}:00. Default to that time unless the transcript suggests otherwise.`
+      : ''
 
   const calendarInstructions = `Help schedule a calendar event.
 - Infer date from context ("Friday", "next week", deadlineText). Today is ${today}.
 - If date/time is ambiguous make a reasonable guess and note it.
-- Default duration is 30 minutes unless context suggests otherwise.`
+- Default duration is 30 minutes unless context suggests otherwise.${calendarHint}`
 
   const availableProjects = listClaudeProjects()
   const projectsListText  = availableProjects.length
@@ -416,4 +464,40 @@ end tell
   const appleScriptPath = join(tmpdir(), 'cornflake-terminal.scpt')
   writeFileSync(appleScriptPath, appleScript, 'utf8')
   await execFileAsync('osascript', [appleScriptPath])
+}
+
+// ---------------------------------------------------------------------------
+// Action type classifier
+// ---------------------------------------------------------------------------
+
+export async function classifyActionType(
+  taskTitle: string,
+  transcriptQuote?: string | null,
+): Promise<'EMAIL' | 'CALENDAR' | 'CLAUDE_CODE'> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) return 'CALENDAR'
+
+  const context = transcriptQuote ? `\nContext from meeting: "${transcriptQuote}"` : ''
+  const raw = await httpsPost(
+    'api.anthropic.com',
+    '/v1/messages',
+    { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    {
+      model: LLM_MODEL.claude,
+      max_tokens: 10,
+      system: `Classify meeting action items. Reply with exactly one word.
+
+EMAIL — send a message, follow up with someone, write an update, share info
+CALENDAR — schedule time, block calendar, set a meeting, book something, set a reminder
+CLAUDE_CODE — write code, fix a bug, implement a feature, open a PR, review code`,
+      messages: [{ role: 'user', content: `Task: "${taskTitle}"${context}` }],
+    },
+  )
+
+  const text = (JSON.parse(raw) as { content?: Array<{ type: string; text: string }> })
+    .content?.find(b => b.type === 'text')?.text?.trim().toUpperCase() ?? ''
+
+  if (text.includes('EMAIL'))       return 'EMAIL'
+  if (text.includes('CLAUDE_CODE') || text.includes('CODE')) return 'CLAUDE_CODE'
+  return 'CALENDAR'
 }
