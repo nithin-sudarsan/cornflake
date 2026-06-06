@@ -362,8 +362,10 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return { success: true, link }
   })
 
-  ipcMain.handle('action:launchClaude', async (_e, payload: { contextMd: string; taskTitle: string }) => {
-    await launchClaudeCode(payload.contextMd, payload.taskTitle)
+  ipcMain.handle('action:launchClaude', async (_e, payload: {
+    contextMd: string; claudeProjectDir?: string | null
+  }) => {
+    await launchClaudeCode(payload.contextMd, payload.claudeProjectDir ?? null)
     return { success: true }
   })
 
@@ -809,6 +811,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   })
 
   // Partial update of any task fields (used by inline edit in meeting detail)
+  ipcMain.handle(RENDERER_CHANNELS.TASK_SET_ACTION_TYPE, async (
+    _event,
+    payload: { taskId: string; actionType: string }
+  ) => {
+    getDb().setTaskActionType(payload.taskId, payload.actionType as any)
+    return null
+  })
+
   ipcMain.handle(RENDERER_CHANNELS.TASKS_UPDATE, async (
     _event,
     payload: {

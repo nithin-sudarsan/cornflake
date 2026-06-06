@@ -43,6 +43,7 @@ const CH = {
   TASKS_HARD_DELETE:           'tasks:hardDelete',
   TASKS_GET_BY_ID:             'tasks:getById',
   TASKS_UPDATE_TITLE:          'tasks:updateTitle',
+  TASK_SET_ACTION_TYPE:        'task:setActionType',
   TASKS_REORDER:               'tasks:reorder',
   TASKS_UPDATE:                'tasks:update',
   TASKS_APPROVE_DISMISS:       'tasks:approveDismiss',
@@ -137,6 +138,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendEmail:               (payload: unknown) => ipcRenderer.invoke(CH.ACTION_SEND_EMAIL, payload),
   addCalendarEvent:        (payload: unknown) => ipcRenderer.invoke(CH.ACTION_ADD_CALENDAR, payload),
   launchClaude:            (payload: unknown) => ipcRenderer.invoke('action:launchClaude', payload),
+  setTaskActionType:       (payload: { taskId: string; actionType: string }) => ipcRenderer.invoke(CH.TASK_SET_ACTION_TYPE, payload),
 
   // Main → Renderer (event subscriptions)
   onMeetingUpcoming:        (cb: (payload: unknown) => void) => ipcRenderer.on(CH.MEETING_UPCOMING,        (_e, p) => cb(p)),

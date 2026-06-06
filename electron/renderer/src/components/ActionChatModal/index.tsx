@@ -22,7 +22,8 @@ interface CalendarDraft {
 }
 
 interface CodeDraft {
-  contextMd: string
+  contextMd:        string
+  claudeProjectDir: string | null
 }
 
 interface ActionChatModalProps {
@@ -43,6 +44,7 @@ const ACTION_META = {
   EMAIL:       { label: '✉ Email',    color: '#60a5fa', bg: 'rgba(59,130,246,0.15)',  btn: '#3b82f6' },
   CALENDAR:    { label: '📅 Calendar', color: '#34d399', bg: 'rgba(16,185,129,0.15)', btn: '#059669' },
   CLAUDE_CODE: { label: '⌨ Code',     color: '#c084fc', bg: 'rgba(168,85,247,0.15)', btn: '#7c3aed' },
+  REMINDER:    { label: '🔔 Reminder', color: '#fbbf24', bg: 'rgba(251,191,36,0.15)', btn: '#d97706' },
 } as const
 
 export default function ActionChatModal({ task, meetingId, onClose }: ActionChatModalProps) {
@@ -145,8 +147,11 @@ export default function ActionChatModal({ task, meetingId, onClose }: ActionChat
     setActing(true)
     setError(null)
     try {
-      await api.launchClaude({ contextMd: codeDraft.contextMd, taskTitle: task.title })
-      setDone(`Context written — Terminal opened with Claude Code`)
+      await api.launchClaude({
+        contextMd:        codeDraft.contextMd,
+        claudeProjectDir: codeDraft.claudeProjectDir,
+      })
+      setDone(`Terminal opened with Claude Code${codeDraft.claudeProjectDir ? ` in ${codeDraft.claudeProjectDir.split('-').at(-1)}` : ''}`)
     } catch (err) {
       setError(`Failed to launch: ${(err as Error).message}`)
     } finally {
@@ -266,7 +271,20 @@ export default function ActionChatModal({ task, meetingId, onClose }: ActionChat
         {/* --- CLAUDE_CODE draft --- */}
         {actionType === 'CLAUDE_CODE' && codeDraft && !done && (
           <div style={{ borderTop: '1px solid var(--color-divider)', padding: '12px 16px', backgroundColor: 'var(--color-bg-deep)', flexShrink: 0 }}>
-            <div style={{ ...sectionLabel, marginBottom: 8 }}>Context for Claude Code</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <div style={sectionLabel}>Context for Claude Code</div>
+              {codeDraft.claudeProjectDir && (
+                <span style={{
+                  fontSize: 10, fontWeight: 600,
+                  padding: '2px 7px', borderRadius: 4,
+                  backgroundColor: 'rgba(168,85,247,0.15)', color: '#c084fc',
+                  fontFamily: 'ui-monospace, monospace',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220,
+                }}>
+                  {codeDraft.claudeProjectDir.split('-').at(-1)}
+                </span>
+              )}
+            </div>
             <textarea
               value={codeDraft.contextMd}
               onChange={e => setCodeDraft(d => d ? { ...d, contextMd: e.target.value } : d)}
@@ -279,7 +297,8 @@ export default function ActionChatModal({ task, meetingId, onClose }: ActionChat
               }}
             />
             <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 5 }}>
-              This will be written to <code style={{ color: 'var(--color-text-muted)' }}>/tmp/cornflake-context.md</code> and shown to Claude when Terminal opens.
+              Passed as prompt to Claude Code
+              {codeDraft.claudeProjectDir ? ` · opens in ${codeDraft.claudeProjectDir.split('-').at(-1)}` : ''}
             </div>
           </div>
         )}

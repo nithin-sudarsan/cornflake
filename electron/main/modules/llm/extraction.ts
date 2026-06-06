@@ -5,7 +5,6 @@
 
 import { getDb } from '../database/index.js'
 import { apiPost } from '../api-client/index.js'
-import { classifyTaskAction } from '../action-router/index.js'
 import type { LLMProvider } from './provider.js'
 import type {
   ReviewPayload, Comm, NewTask, NewComm, Speaker, Utterance,
@@ -263,7 +262,7 @@ export async function runExtractionPipeline(
       remindAtMs:           null,
       transcriptQuote:      t.transcriptQuote ?? null,
       extractionConfidence: confidence,
-      actionType:           classifyTaskAction(title),
+      actionType:           (t as any).action_type ?? null,
       note:                 null,
       listName:             'Reminders',
     }
@@ -458,7 +457,7 @@ export async function regenerateTasksForMeeting(
       remindAtMs:           null,
       transcriptQuote:      t.transcriptQuote ?? null,
       extractionConfidence: confidence,
-      actionType:           classifyTaskAction(title),
+      actionType:           (t as any).action_type ?? null,
       note:                 null,
       listName:             'Reminders',
     }

@@ -2,7 +2,7 @@ export type Confidence = 'high' | 'medium' | 'low' | 'manual'
 export type TaskStatus   = 'awaiting_approval' | 'pending' | 'confirmed' | 'dismissed'
 export type TaskPriority = 'normal' | 'high' | 'urgent'
 export type DeliveryChannel = 'push' | 'email' | 'both'
-export type ActionType = 'EMAIL' | 'CLAUDE_CODE' | 'CALENDAR'
+export type ActionType = 'EMAIL' | 'CLAUDE_CODE' | 'CALENDAR' | 'REMINDER'
 
 export interface Meeting {
   id: string

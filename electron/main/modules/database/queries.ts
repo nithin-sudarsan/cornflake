@@ -441,6 +441,13 @@ export function buildQueries(db: Database.Database) {
     return mapTask(row)
   }
 
+  function setTaskActionType(taskId: string, actionType: ActionType | null): void {
+    db.prepare(`UPDATE tasks SET action_type = ?, updated_at = ? WHERE id = ?`)
+      .run(actionType, Date.now(), taskId)
+    const row = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(taskId) as TaskRow
+    if (row) _onWrite?.('tasks', row as unknown as Record<string, unknown>)
+  }
+
   function confirmTask(taskId: string): void {
     db.prepare(`UPDATE tasks SET status = 'pending', updated_at = ? WHERE id = ?`).run(now(), taskId)
     const row = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(taskId)
@@ -1219,6 +1226,7 @@ export function buildQueries(db: Database.Database) {
     createTasks,
     createStandaloneTask,
     updateTask,
+    setTaskActionType,
     confirmTask,
     approveTaskToList,
     dismissTask,

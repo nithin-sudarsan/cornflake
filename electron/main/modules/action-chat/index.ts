@@ -5,8 +5,8 @@ import { getGoogleAccessToken, getGoogleRefreshToken, storeGoogleAccessToken } f
 import { google } from 'googleapis'
 import type { OAuth2Client } from 'google-auth-library'
 import { execFile } from 'child_process'
-import { writeFileSync } from 'fs'
-import { tmpdir } from 'os'
+import { writeFileSync, readFileSync, readdirSync, statSync, existsSync } from 'fs'
+import { tmpdir, homedir } from 'os'
 import { join } from 'path'
 import { promisify } from 'util'
 
@@ -64,6 +64,59 @@ async function withGoogleAuth<T>(fn: (auth: OAuth2Client) => Promise<T>): Promis
 }
 
 // ---------------------------------------------------------------------------
+// ~/.claude/projects helpers — identify repo and load conversation history
+// ---------------------------------------------------------------------------
+
+interface ClaudeProject {
+  dirName:  string        // e.g. "-Users-dheer-Developer-hackathons-cornflake"
+  repoPath: string | null // decoded absolute path (null if path no longer exists)
+  label:    string        // last path segment, for display
+}
+
+function listClaudeProjects(): ClaudeProject[] {
+  const claudeDir = join(homedir(), '.claude', 'projects')
+  if (!existsSync(claudeDir)) return []
+  return readdirSync(claudeDir, { withFileTypes: true })
+    .filter(d => d.isDirectory())
+    .map(d => {
+      // Claude encodes absolute paths by replacing every '/' with '-'
+      // So -Users-foo-bar → /Users/foo/bar
+      const candidate = d.name.replace(/-/g, '/')
+      const repoPath  = existsSync(candidate) ? candidate : null
+      const label     = repoPath
+        ? (repoPath.split('/').at(-1) ?? d.name)
+        : d.name
+      return { dirName: d.name, repoPath, label }
+    })
+}
+
+function getLatestJsonlPath(dirName: string): string | null {
+  const dir = join(homedir(), '.claude', 'projects', dirName)
+  if (!existsSync(dir)) return null
+  const files = readdirSync(dir).filter(f => f.endsWith('.jsonl'))
+  if (!files.length) return null
+  return join(
+    dir,
+    files.sort((a, b) =>
+      statSync(join(dir, b)).mtimeMs - statSync(join(dir, a)).mtimeMs,
+    )[0],
+  )
+}
+
+// Read the first entry with a cwd field — that's the repo root Claude was running in.
+function extractCwdFromJsonl(jsonlPath: string): string | null {
+  const lines = readFileSync(jsonlPath, 'utf8').split('\n')
+  for (const line of lines) {
+    if (!line.trim()) continue
+    try {
+      const entry = JSON.parse(line) as { cwd?: string }
+      if (typeof entry.cwd === 'string' && entry.cwd) return entry.cwd
+    } catch { /* skip */ }
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -88,7 +141,8 @@ export interface CalendarDraft {
 }
 
 export interface CodeDraft {
-  contextMd: string
+  contextMd:        string
+  claudeProjectDir: string | null  // dir name inside ~/.claude/projects/
 }
 
 export interface ChatResponse {
@@ -139,6 +193,11 @@ export async function chatForAction(
 - If date/time is ambiguous make a reasonable guess and note it.
 - Default duration is 30 minutes unless context suggests otherwise.`
 
+  const availableProjects = listClaudeProjects()
+  const projectsListText  = availableProjects.length
+    ? availableProjects.map(p => `  - ${p.dirName}${p.repoPath ? ` (→ ${p.repoPath})` : ''}`).join('\n')
+    : '  (none found)'
+
   const codeInstructions = `Generate a rich context document (markdown) for Claude Code to use when implementing this task.
 The context_md should include:
 ## Task
@@ -148,13 +207,19 @@ Relevant decisions, constraints, and background from this meeting.
 ## Suggested Approach
 Concrete implementation steps or architectural suggestions based on what was discussed.
 ## Notes
-Any gotchas, dependencies, or open questions from the meeting.`
+Any gotchas, dependencies, or open questions from the meeting.
+
+AVAILABLE CODE PROJECTS (from ~/.claude/projects/):
+${projectsListText}
+
+Set claude_project_dir to the dirName of the project most relevant to this task, or null if none match.
+Pick based on: project name in meeting transcript, file paths mentioned, or repo name in task title.`
 
   const responseFormat = actionType === 'EMAIL'
     ? `{"message":"...","email_draft":{"to_name":"...","to_email":"...","subject":"...","body":"..."},"calendar_draft":null,"code_draft":null}`
     : actionType === 'CALENDAR'
     ? `{"message":"...","email_draft":null,"calendar_draft":{"title":"...","date_iso":"YYYY-MM-DD","time":"HH:MM","duration_min":30,"description":"..."},"code_draft":null}`
-    : `{"message":"...","email_draft":null,"calendar_draft":null,"code_draft":{"context_md":"# Task: ...\\n\\n## Meeting Context\\n..."}}`
+    : `{"message":"...","email_draft":null,"calendar_draft":null,"code_draft":{"context_md":"# Task: ...\\n\\n## Meeting Context\\n...","claude_project_dir":"-Users-foo-bar-or-null"}}`
 
   const systemPrompt = `You are an action assistant embedded in Cornflake, a meeting intelligence app.
 
@@ -206,7 +271,7 @@ Example: ${responseFormat}`
     message: string
     email_draft: { to_name: string; to_email: string; subject: string; body: string } | null
     calendar_draft: { title: string; date_iso: string; time: string; duration_min: number; description: string } | null
-    code_draft: { context_md: string } | null
+    code_draft: { context_md: string; claude_project_dir?: string | null } | null
   }
 
   try {
@@ -223,7 +288,16 @@ Example: ${responseFormat}`
     calendarDraft: data.calendar_draft
       ? { title: data.calendar_draft.title, dateIso: data.calendar_draft.date_iso, time: data.calendar_draft.time, durationMin: data.calendar_draft.duration_min, description: data.calendar_draft.description }
       : null,
-    codeDraft: data.code_draft ? { contextMd: data.code_draft.context_md } : null,
+    codeDraft: data.code_draft
+      ? (() => {
+          const dirName = data.code_draft.claude_project_dir ?? null
+          const project = dirName ? availableProjects.find(p => p.dirName === dirName) ?? null : null
+          return {
+            contextMd:        data.code_draft.context_md,
+            claudeProjectDir: project?.dirName ?? null,
+          }
+        })()
+      : null,
   }
 }
 
@@ -305,18 +379,39 @@ export async function addGoogleCalendarEvent(
 // Claude Code launcher
 // ---------------------------------------------------------------------------
 
-export async function launchClaudeCode(contextMd: string, taskTitle: string): Promise<void> {
+export async function launchClaudeCode(
+  contextMd:        string,
+  claudeProjectDir: string | null = null,
+): Promise<void> {
+  // Resolve the working directory from the JSONL cwd field (most reliable source).
+  let cwd: string | null = null
+  if (claudeProjectDir) {
+    const jsonlPath = getLatestJsonlPath(claudeProjectDir)
+    if (jsonlPath) cwd = extractCwdFromJsonl(jsonlPath)
+  }
+
   const contextPath = join(tmpdir(), 'cornflake-context.md')
   writeFileSync(contextPath, contextMd, 'utf8')
 
-  const safeTask = taskTitle.replace(/'/g, "\\'")
-  const script = `
+  // Write a launcher shell script so we avoid all AppleScript string-escaping issues.
+  // The script cd's into the project root then passes the context file as claude's prompt.
+  const cdLine     = cwd ? `cd '${cwd.replace(/'/g, "'\\''")}'` : ''
+  const launchScript = [
+    '#!/bin/bash',
+    cdLine,
+    `claude "$(cat '${contextPath}')"`,
+  ].filter(Boolean).join('\n') + '\n'
+
+  const launchPath = join(tmpdir(), 'cornflake-launch.sh')
+  writeFileSync(launchPath, launchScript, { encoding: 'utf8', mode: 0o755 })
+
+  const appleScript = `
 tell application "Terminal"
   activate
-  do script "echo '\\n# Cornflake context loaded for: ${safeTask}\\n' && cat ${contextPath} && echo '\\n---\\n' && claude"
+  do script "bash '${launchPath}'"
 end tell
 `
-  const scriptPath = join(tmpdir(), 'cornflake-terminal.scpt')
-  writeFileSync(scriptPath, script, 'utf8')
-  await execFileAsync('osascript', [scriptPath])
+  const appleScriptPath = join(tmpdir(), 'cornflake-terminal.scpt')
+  writeFileSync(appleScriptPath, appleScript, 'utf8')
+  await execFileAsync('osascript', [appleScriptPath])
 }

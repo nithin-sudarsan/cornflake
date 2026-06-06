@@ -63,6 +63,7 @@ export const RENDERER_CHANNELS = {
   TASKS_HARD_DELETE:           'tasks:hardDelete',
   TASKS_GET_BY_ID:             'tasks:getById',
   TASKS_UPDATE_TITLE:          'tasks:updateTitle',
+  TASK_SET_ACTION_TYPE:        'task:setActionType',
   TASKS_REORDER:               'tasks:reorder',
   TASKS_UPDATE:                'tasks:update',
   TASKS_APPROVE_DISMISS:       'tasks:approveDismiss',

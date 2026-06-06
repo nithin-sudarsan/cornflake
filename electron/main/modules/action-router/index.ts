@@ -1,8 +1,5 @@
-// Action Router — classifies extracted tasks into EMAIL | CLAUDE_CODE | CALENDAR
-// and executes the corresponding action when the user taps "Do it" on a notification.
-//
-// Classification uses keyword patterns. Mubit wraps the outcomes so the router
-// learns over time which action types this team approves for which task patterns.
+// Action Router — executes actions when the user taps "Do it" on a task.
+// Action type classification is done by the LLM at extraction time (cornflake-api).
 
 import { Notification, shell } from 'electron'
 import { exec } from 'child_process'
@@ -12,58 +9,6 @@ import type { Task, ActionType } from '../database/types.js'
 import { recordActionOutcome } from './mubit-client.js'
 
 const execAsync = promisify(exec)
-
-// ---------------------------------------------------------------------------
-// Classifier
-// ---------------------------------------------------------------------------
-
-const CALENDAR_PATTERNS: RegExp[] = [
-  /\b(schedule|book|set[\s-]?up|arrange|organise|organize)\b.*\b(meeting|call|sync|session|demo|review|standup|stand[\s-]?up)\b/i,
-  /\b(meeting|call|sync|session|demo|review)\b.*\b(schedule|book|set[\s-]?up)\b/i,
-  /\bfollow[\s-]?up\b.*\b(meeting|call|sync)\b/i,
-  /\b(block|reserve)\b.*\b(time|slot|calendar)\b/i,
-  /\b(reschedule|rescheduling)\b/i,
-  /\bcalendar\b.*\b(invite|event|block)\b/i,
-  /\b(set\s+a?\s*time|find\s+a?\s*time)\b/i,
-]
-
-const EMAIL_PATTERNS: RegExp[] = [
-  /\bsend\b.*\b(email|e-mail|mail|message|follow[\s-]?up|note|update)\b/i,
-  /\b(email|mail|message|follow[\s-]?up)\b.*\bto\b/i,
-  /\bwrite\b.*\b(email|e-mail|mail|message)\b/i,
-  /\breach[\s-]?out\b/i,
-  /\bfollow[\s-]?up\b.*\b(with|on|to)\b/i,
-  /\b(notify|inform|update|ping|loop[\s-]?in)\b.*\b(team|client|partner|stakeholder|vendor)\b/i,
-  /\bsend\b.*\b[A-Z][a-z]+\b/,   // "send X to James", "send James the …"
-  /\b(draft|compose)\b.*\b(email|e-mail|message)\b/i,
-  /\bcc\b|\bbcc\b/i,
-]
-
-const CLAUDE_CODE_PATTERNS: RegExp[] = [
-  /\b(implement|build|code|develop|write|create)\b.*\b(feature|function|module|api|service|component|endpoint|page|screen)\b/i,
-  /\b(implement|build|develop)\b/i,
-  /\b(fix|debug|resolve|patch)\b.*\b(bug|error|issue|crash|problem|regression)\b/i,
-  /\b(refactor|clean[\s-]?up|rewrite)\b/i,
-  /\b(deploy|release|ship|push|merge)\b.*\b(code|feature|update|version|branch|pr|pull\s+request)\b/i,
-  /\bpull\s+request\b|\bcode\s+review\b|\bpr\s+review\b/i,
-  /\b(write|add)\b.*\b(test|spec|unit\s+test|integration\s+test)\b/i,
-  /\b(update|change|modify|edit)\b.*\b(code|function|class|schema|migration|config)\b/i,
-  /\badd\b.*\b(auth|authentication|authorization|logging|tracking|analytics)\b/i,
-]
-
-export function classifyTaskAction(taskTitle: string): ActionType {
-  for (const pattern of CALENDAR_PATTERNS) {
-    if (pattern.test(taskTitle)) return 'CALENDAR'
-  }
-  for (const pattern of EMAIL_PATTERNS) {
-    if (pattern.test(taskTitle)) return 'EMAIL'
-  }
-  for (const pattern of CLAUDE_CODE_PATTERNS) {
-    if (pattern.test(taskTitle)) return 'CLAUDE_CODE'
-  }
-  // Default: EMAIL — most meeting follow-ups are communication-oriented.
-  return 'EMAIL'
-}
 
 // ---------------------------------------------------------------------------
 // Notification surface — one notification per task after a meeting ends
@@ -82,7 +27,8 @@ function _showNotificationForTask(task: Task, meetingTitle: string): void {
   const actionLabel =
     task.actionType === 'EMAIL'       ? '📧 Email'    :
     task.actionType === 'CLAUDE_CODE' ? '💻 Code'     :
-    task.actionType === 'CALENDAR'    ? '📅 Calendar' : ''
+    task.actionType === 'CALENDAR'    ? '📅 Calendar' :
+    task.actionType === 'REMINDER'    ? '🔔 Reminder' : ''
 
   const notif = new Notification({
     title: task.title,
@@ -119,6 +65,7 @@ async function executeAction(task: Task): Promise<void> {
     case 'EMAIL':       return executeEmailAction(task)
     case 'CLAUDE_CODE': return executeClaudeCodeAction(task)
     case 'CALENDAR':    return executeCalendarAction(task)
+    case 'REMINDER':    return  // no automated action — user handles manually
   }
 }
 
