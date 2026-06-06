@@ -117,6 +117,7 @@ export interface TaskForApproval {
   transcriptQuote: string | null
   extractionConfidence: string | null
   note: string | null
+  actionType: string | null
 }
 
 export interface PastMeeting {

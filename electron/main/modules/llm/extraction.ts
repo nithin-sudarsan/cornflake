@@ -5,6 +5,7 @@
 
 import { getDb } from '../database/index.js'
 import { apiPost } from '../api-client/index.js'
+import { classifyTaskAction } from '../action-router/index.js'
 import type { LLMProvider } from './provider.js'
 import type {
   ReviewPayload, Comm, NewTask, NewComm, Speaker, Utterance,
@@ -236,7 +237,7 @@ export async function runExtractionPipeline(
   console.log(`[llm-extraction] Backend title: "${extractedTitle || '(none)'}"`)
   console.log(`[llm-extraction] Parsed — tasks: ${rawTasks.length}, decisions: ${rawDecisions.length}, summary: ${summaryText.length} chars`)
 
-  // Map extracted tasks → DB NewTask rows
+  // Map extracted tasks → DB NewTask rows (with action type classification)
   const newTasks: NewTask[] = rawTasks.map(t => {
     let deadlineMs: number | null = null
     if (t.deadlineIso) {
@@ -248,18 +249,21 @@ export async function runExtractionPipeline(
       ? t.confidence as 'high' | 'medium' | 'low'
       : 'medium'
 
+    const title = t.title.slice(0, 200)
+
     return {
       meetingId,
       // assigneeSpeakerId always null in v1 — tasks are implicitly the user's.
       // Column kept in DB so we can bring multi-player back in v2 without a migration.
       assigneeSpeakerId:    null,
-      title:                t.title.slice(0, 200),
+      title,
       deadlineText:         t.deadlineText ?? null,
       deadlineMs,
       remindOffsetMs:       null,
       remindAtMs:           null,
       transcriptQuote:      t.transcriptQuote ?? null,
       extractionConfidence: confidence,
+      actionType:           classifyTaskAction(title),
       note:                 null,
       listName:             'Reminders',
     }
@@ -443,16 +447,18 @@ export async function regenerateTasksForMeeting(
     const confidence = (['high', 'medium', 'low'] as const).includes(t.confidence as never)
       ? t.confidence as 'high' | 'medium' | 'low'
       : 'medium'
+    const title = t.title.slice(0, 200)
     return {
       meetingId,
       assigneeSpeakerId:    null,   // v1 single-player — no assignee
-      title:                t.title.slice(0, 200),
+      title,
       deadlineText:         t.deadlineText ?? null,
       deadlineMs,
       remindOffsetMs:       null,
       remindAtMs:           null,
       transcriptQuote:      t.transcriptQuote ?? null,
       extractionConfidence: confidence,
+      actionType:           classifyTaskAction(title),
       note:                 null,
       listName:             'Reminders',
     }

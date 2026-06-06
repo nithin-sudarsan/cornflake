@@ -12,6 +12,12 @@ const CH_PULL_START      = 'sync:pullStart'
 const CH_PULL_COMPLETE   = 'sync:pullComplete'
 const CH_DATA_UPDATED    = 'sync:dataUpdated'
 
+// Columns that exist locally but not yet in the Supabase schema — strip before push.
+// Add a column here when it's been migrated locally but the cloud schema hasn't caught up.
+const STRIP_FROM_PUSH: Record<string, string[]> = {
+  tasks: ['action_type'],
+}
+
 // FK dependency order — parents must be upserted before children.
 // Used both for push ordering AND for pull ordering.
 const PULL_TABLE_ORDER = [
@@ -258,9 +264,13 @@ class SyncModule {
     console.log(`[sync] queueUpsert → ${table} (id=${record.id ?? '?'})`)
     // The `users` table in Supabase has no `user_id` column — it uses `id` as PK.
     // All other tables get user_id stamped for ownership queries.
-    const enriched = table === 'users'
+    const stamped = table === 'users'
       ? { ...record }
       : { ...record, user_id: this.userId }
+    const stripCols = STRIP_FROM_PUSH[table] ?? []
+    const enriched = stripCols.length > 0
+      ? Object.fromEntries(Object.entries(stamped).filter(([k]) => !stripCols.includes(k)))
+      : stamped
     this.queue.push({
       id:        crypto.randomUUID(),
       table,

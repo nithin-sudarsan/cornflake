@@ -12,11 +12,27 @@ const addonPath = app.isPackaged
   ? path.join(process.resourcesPath, 'cornflake_capture.node')
   : path.join(__dirname, '..', '..', '..', '..', 'swift', 'build', 'Release', 'cornflake_capture.node')
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const addon = require(addonPath) as {
+type Addon = {
   startCapture: (cb: (err: string | null) => void) => void
   stopCapture:  (cb: (err: string | null, result: { micPath: string; systemAudioPath: string } | null) => void) => void
   getMicInputPIDs?: () => number[]
+}
+
+// Lazy-load so the app starts even if the addon hasn't been compiled yet.
+// Errors are deferred to the first startCapture() / stopCapture() call.
+let _addon: Addon | null = null
+let _addonError: string | null = null
+function getAddon(): Addon {
+  if (_addon) return _addon
+  if (_addonError) throw new Error(_addonError)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    _addon = require(addonPath) as Addon
+    return _addon
+  } catch (err) {
+    _addonError = (err as Error).message
+    throw err
+  }
 }
 
 export interface AudioPaths {
@@ -26,10 +42,14 @@ export interface AudioPaths {
 
 export function startCapture(): Promise<void> {
   return new Promise((resolve, reject) => {
-    addon.startCapture((err) => {
-      if (err) reject(new Error(err))
-      else resolve()
-    })
+    try {
+      getAddon().startCapture((err) => {
+        if (err) reject(new Error(err))
+        else resolve()
+      })
+    } catch (err) {
+      reject(err)
+    }
   })
 }
 
@@ -37,9 +57,10 @@ export function startCapture(): Promise<void> {
 // Used by the meeting-app watcher to detect browser-based meetings. Returns
 // an empty array if the native function isn't available (older addon build).
 export function getMicInputPIDs(): number[] {
-  if (!addon.getMicInputPIDs) return []
   try {
-    return addon.getMicInputPIDs()
+    const a = getAddon()
+    if (!a.getMicInputPIDs) return []
+    return a.getMicInputPIDs()
   } catch (err) {
     console.error('[audio-capture] getMicInputPIDs failed:', (err as Error).message)
     return []
@@ -48,10 +69,14 @@ export function getMicInputPIDs(): number[] {
 
 export function stopCapture(): Promise<AudioPaths> {
   return new Promise((resolve, reject) => {
-    addon.stopCapture((err, result) => {
-      if (err) reject(new Error(err))
-      else if (!result) reject(new Error('stopCapture returned no paths'))
-      else resolve(result)
-    })
+    try {
+      getAddon().stopCapture((err, result) => {
+        if (err) reject(new Error(err))
+        else if (!result) reject(new Error('stopCapture returned no paths'))
+        else resolve(result)
+      })
+    } catch (err) {
+      reject(err)
+    }
   })
 }

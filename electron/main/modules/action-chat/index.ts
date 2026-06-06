@@ -1,0 +1,322 @@
+import { httpsPost } from '../llm/utils.js'
+import { getDb } from '../database/index.js'
+import { LLM_MODEL } from '../../llm.config.js'
+import { getGoogleAccessToken, getGoogleRefreshToken, storeGoogleAccessToken } from '../auth/index.js'
+import { google } from 'googleapis'
+import type { OAuth2Client } from 'google-auth-library'
+import { execFile } from 'child_process'
+import { writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { promisify } from 'util'
+
+const execFileAsync = promisify(execFile)
+
+// ---------------------------------------------------------------------------
+// Shared Google OAuth2 client (mirrors calendar-watcher pattern)
+// ---------------------------------------------------------------------------
+
+async function loadGoogleAuth(): Promise<OAuth2Client | null> {
+  const accessToken = await getGoogleAccessToken()
+  if (!accessToken) return null
+  const auth = new google.auth.OAuth2()
+  auth.setCredentials({ access_token: accessToken })
+  return auth
+}
+
+async function refreshGoogleAuth(): Promise<OAuth2Client | null> {
+  const refreshToken = await getGoogleRefreshToken()
+  if (!refreshToken) return null
+  const backend = (process.env.BACKEND_URL || 'http://localhost:3000').replace(/\/$/, '')
+  try {
+    const res = await fetch(`${backend}/api/auth/google-refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    })
+    if (!res.ok) return null
+    const { accessToken } = await res.json() as { accessToken?: string }
+    if (!accessToken) return null
+    await storeGoogleAccessToken(accessToken)
+    const auth = new google.auth.OAuth2()
+    auth.setCredentials({ access_token: accessToken })
+    return auth
+  } catch {
+    return null
+  }
+}
+
+// Retry once with refreshed token on 401
+async function withGoogleAuth<T>(fn: (auth: OAuth2Client) => Promise<T>): Promise<T> {
+  let auth = await loadGoogleAuth()
+  if (!auth) throw new Error('Not signed in to Google. Please reconnect your Google account.')
+  try {
+    return await fn(auth)
+  } catch (err: any) {
+    const status = err?.response?.status ?? err?.status ?? err?.code
+    if (status === 401 || status === 403) {
+      auth = await refreshGoogleAuth()
+      if (!auth) throw new Error('Google session expired. Please reconnect Google in settings.')
+      return await fn(auth)
+    }
+    throw err
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface EmailDraft {
+  toName: string
+  toEmail: string
+  subject: string
+  body: string
+}
+
+export interface CalendarDraft {
+  title: string
+  dateIso: string
+  time: string
+  durationMin: number
+  description: string
+}
+
+export interface CodeDraft {
+  contextMd: string
+}
+
+export interface ChatResponse {
+  message: string
+  emailDraft: EmailDraft | null
+  calendarDraft: CalendarDraft | null
+  codeDraft: CodeDraft | null
+}
+
+// ---------------------------------------------------------------------------
+// AI chat
+// ---------------------------------------------------------------------------
+
+export async function chatForAction(
+  taskTitle: string,
+  actionType: 'EMAIL' | 'CALENDAR' | 'CLAUDE_CODE',
+  meetingId: string,
+  messages: ChatMessage[],
+): Promise<ChatResponse> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
+
+  const db = getDb()
+  const detail = db.getMeetingDetail(meetingId)
+
+  const speakerContext = (detail?.speakers ?? [])
+    .map(s => {
+      const sp = s as { id: string; name: string | null; isSelf: boolean; email?: string }
+      const emailPart = sp.email ? ` <${sp.email}>` : ''
+      return `- ${sp.name ?? 'Unknown'}${emailPart} (${sp.isSelf ? 'you' : 'remote participant'})`
+    })
+    .join('\n')
+
+  const transcriptContext = (detail?.utterances ?? [])
+    .slice(0, 40)
+    .map(u => `${u.speakerName ?? 'Speaker'}: ${u.text}`)
+    .join('\n')
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  const emailInstructions = `Help draft a professional follow-up email.
+- Infer the recipient name and email from the participant list. If email is unknown, set to_email to "" and note this in your message.
+- Reference specific details from the meeting transcript.
+- Keep the body concise (3-4 sentences). Sign off with the user's name if known.`
+
+  const calendarInstructions = `Help schedule a calendar event.
+- Infer date from context ("Friday", "next week", deadlineText). Today is ${today}.
+- If date/time is ambiguous make a reasonable guess and note it.
+- Default duration is 30 minutes unless context suggests otherwise.`
+
+  const codeInstructions = `Generate a rich context document (markdown) for Claude Code to use when implementing this task.
+The context_md should include:
+## Task
+Clear description of what needs to be implemented.
+## Meeting Context
+Relevant decisions, constraints, and background from this meeting.
+## Suggested Approach
+Concrete implementation steps or architectural suggestions based on what was discussed.
+## Notes
+Any gotchas, dependencies, or open questions from the meeting.`
+
+  const responseFormat = actionType === 'EMAIL'
+    ? `{"message":"...","email_draft":{"to_name":"...","to_email":"...","subject":"...","body":"..."},"calendar_draft":null,"code_draft":null}`
+    : actionType === 'CALENDAR'
+    ? `{"message":"...","email_draft":null,"calendar_draft":{"title":"...","date_iso":"YYYY-MM-DD","time":"HH:MM","duration_min":30,"description":"..."},"code_draft":null}`
+    : `{"message":"...","email_draft":null,"calendar_draft":null,"code_draft":{"context_md":"# Task: ...\\n\\n## Meeting Context\\n..."}}`
+
+  const systemPrompt = `You are an action assistant embedded in Cornflake, a meeting intelligence app.
+
+TASK: "${taskTitle}"
+ACTION TYPE: ${actionType}
+MEETING TITLE: ${detail?.title ?? 'Unknown meeting'}
+TODAY: ${today}
+
+PARTICIPANTS:
+${speakerContext || '(no participants listed)'}
+
+MEETING SUMMARY:
+${detail?.summary ?? '(no summary available)'}
+
+TRANSCRIPT EXCERPT:
+${transcriptContext || '(no transcript available)'}
+
+${actionType === 'EMAIL' ? emailInstructions : actionType === 'CALENDAR' ? calendarInstructions : codeInstructions}
+
+RESPONSE FORMAT: Respond with valid JSON only — no markdown, no text outside JSON.
+Example: ${responseFormat}`
+
+  const apiMessages: ChatMessage[] = messages.length > 0
+    ? messages
+    : [{ role: 'user', content: `Help me action this task: "${taskTitle}"` }]
+
+  const raw = await httpsPost(
+    'api.anthropic.com',
+    '/v1/messages',
+    { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    {
+      model: LLM_MODEL.claude,
+      max_tokens: 1500,
+      system: systemPrompt,
+      messages: apiMessages,
+    },
+  )
+
+  const parsed = JSON.parse(raw) as {
+    content?: Array<{ type: string; text: string }>
+    error?: { message: string }
+  }
+  if (parsed.error) throw new Error(`Anthropic error: ${parsed.error.message}`)
+
+  const text = parsed.content?.find(b => b.type === 'text')?.text ?? ''
+  const jsonText = text.replace(/^```(?:json)?\s*/m, '').replace(/\s*```\s*$/m, '').trim()
+
+  let data: {
+    message: string
+    email_draft: { to_name: string; to_email: string; subject: string; body: string } | null
+    calendar_draft: { title: string; date_iso: string; time: string; duration_min: number; description: string } | null
+    code_draft: { context_md: string } | null
+  }
+
+  try {
+    data = JSON.parse(jsonText)
+  } catch {
+    data = { message: text, email_draft: null, calendar_draft: null, code_draft: null }
+  }
+
+  return {
+    message: data.message ?? '',
+    emailDraft: data.email_draft
+      ? { toName: data.email_draft.to_name, toEmail: data.email_draft.to_email, subject: data.email_draft.subject, body: data.email_draft.body }
+      : null,
+    calendarDraft: data.calendar_draft
+      ? { title: data.calendar_draft.title, dateIso: data.calendar_draft.date_iso, time: data.calendar_draft.time, durationMin: data.calendar_draft.duration_min, description: data.calendar_draft.description }
+      : null,
+    codeDraft: data.code_draft ? { contextMd: data.code_draft.context_md } : null,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Gmail send (uses the signed-in Google account directly)
+// ---------------------------------------------------------------------------
+
+// Build a minimal RFC 2822 email and base64url-encode it for the Gmail API.
+function buildMimeMessage(
+  fromName: string, fromEmail: string,
+  toName: string, toEmail: string,
+  subject: string, body: string,
+): string {
+  const to = toName ? `"${toName}" <${toEmail}>` : toEmail
+  const from = fromName ? `"${fromName}" <${fromEmail}>` : fromEmail
+  const mime = [
+    `From: ${from}`,
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: text/plain; charset=UTF-8`,
+    ``,
+    body,
+  ].join('\r\n')
+  // Gmail API requires base64url (no padding)
+  return Buffer.from(mime).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export async function sendViaGmail(
+  toName: string,
+  toEmail: string,
+  subject: string,
+  body: string,
+  fromName: string,
+  fromEmail: string,
+): Promise<void> {
+  await withGoogleAuth(async auth => {
+    const gmail = google.gmail({ version: 'v1', auth })
+    const raw = buildMimeMessage(fromName, fromEmail, toName, toEmail, subject, body)
+    await gmail.users.messages.send({ userId: 'me', requestBody: { raw } })
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Google Calendar event insert
+// ---------------------------------------------------------------------------
+
+export async function addGoogleCalendarEvent(
+  title: string,
+  dateIso: string,
+  time: string,
+  durationMin: number,
+  description: string,
+): Promise<string> {
+  const [year, month, day] = dateIso.split('-').map(Number)
+  const [hour, minute] = (time || '10:00').split(':').map(Number)
+
+  const start = new Date(year, month - 1, day, hour ?? 10, minute ?? 0)
+  const end   = new Date(start.getTime() + (durationMin ?? 30) * 60_000)
+
+  const eventLink = await withGoogleAuth(async auth => {
+    const cal = google.calendar({ version: 'v3', auth })
+    const res = await cal.events.insert({
+      calendarId: 'primary',
+      requestBody: {
+        summary:     title,
+        description: description || undefined,
+        start:       { dateTime: start.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+        end:         { dateTime: end.toISOString(),   timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+      },
+    })
+    return res.data.htmlLink ?? ''
+  })
+
+  return eventLink
+}
+
+// ---------------------------------------------------------------------------
+// Claude Code launcher
+// ---------------------------------------------------------------------------
+
+export async function launchClaudeCode(contextMd: string, taskTitle: string): Promise<void> {
+  const contextPath = join(tmpdir(), 'cornflake-context.md')
+  writeFileSync(contextPath, contextMd, 'utf8')
+
+  const safeTask = taskTitle.replace(/'/g, "\\'")
+  const script = `
+tell application "Terminal"
+  activate
+  do script "echo '\\n# Cornflake context loaded for: ${safeTask}\\n' && cat ${contextPath} && echo '\\n---\\n' && claude"
+end tell
+`
+  const scriptPath = join(tmpdir(), 'cornflake-terminal.scpt')
+  writeFileSync(scriptPath, script, 'utf8')
+  await execFileAsync('osascript', [scriptPath])
+}

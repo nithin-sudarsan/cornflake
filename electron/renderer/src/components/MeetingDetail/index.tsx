@@ -10,6 +10,7 @@ import {
   type MeetingDetailData,
   type TaskForApproval,
 } from '../../hooks/useIPC'
+import ActionChatModal from '../ActionChatModal'
 
 interface MeetingDetailProps {
   meetingId: string
@@ -382,11 +383,13 @@ const EXIT_DURATION_MS = 280
 interface ActionItemsSectionProps {
   tasks: TaskForApproval[]
   speakers: { id: string; name: string | null; isSelf: boolean }[]
+  meetingId: string
   onApproved: (approvedIds: string[], dismissedIds: string[]) => void
   onAnyChange?: () => void
 }
 
-function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyChange }: ActionItemsSectionProps) {
+function ActionItemsSection({ tasks: initialTasks, speakers, meetingId, onApproved, onAnyChange }: ActionItemsSectionProps) {
+  const [chatTask, setChatTask] = useState<TaskForApproval | null>(null)
   const [tasks, setTasks]             = useState<TaskForApproval[]>(initialTasks)
   const [checked, setChecked]         = useState<Set<string>>(new Set())
   const [dismissed, setDismissed]     = useState<Set<string>>(new Set())
@@ -601,12 +604,30 @@ function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyCh
                     {task.title}
                   </p>
 
-                  {/* Deadline only — assignee removed for v1 single-player mode */}
+                  {/* Deadline + action type badge */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' }}>
                     {task.deadlineText ? (
                       <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{task.deadlineText}</span>
                     ) : (
                       <span style={{ fontSize: 11, color: '#f59e0b' }}>No deadline</span>
+                    )}
+                    {task.actionType && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 600, letterSpacing: '0.02em',
+                        padding: '1px 6px', borderRadius: 4,
+                        backgroundColor:
+                          task.actionType === 'EMAIL'       ? 'rgba(59,130,246,0.15)' :
+                          task.actionType === 'CLAUDE_CODE' ? 'rgba(168,85,247,0.15)' :
+                                                              'rgba(16,185,129,0.15)',
+                        color:
+                          task.actionType === 'EMAIL'       ? '#60a5fa' :
+                          task.actionType === 'CLAUDE_CODE' ? '#c084fc' :
+                                                              '#34d399',
+                      }}>
+                        {task.actionType === 'EMAIL'       ? '✉ Email' :
+                         task.actionType === 'CLAUDE_CODE' ? '⌨ Code' :
+                                                             '📅 Calendar'}
+                      </span>
                     )}
                   </div>
 
@@ -661,8 +682,27 @@ function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyCh
                   </div>
                 </div>
 
-                {/* Edit + dismiss */}
-                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                {/* Do it + edit + dismiss */}
+                <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
+                  {task.actionType && (
+                    <button
+                      onClick={() => setChatTask(task)}
+                      aria-label="Do it"
+                      style={{
+                        background: 'none',
+                        border: task.actionType === 'EMAIL'       ? '1px solid rgba(59,130,246,0.4)'  :
+                                 task.actionType === 'CLAUDE_CODE' ? '1px solid rgba(168,85,247,0.4)' :
+                                                                     '1px solid rgba(16,185,129,0.4)',
+                        borderRadius: 4, cursor: 'pointer', padding: '2px 7px',
+                        fontSize: 10, fontWeight: 600, fontFamily: 'inherit', whiteSpace: 'nowrap',
+                        color: task.actionType === 'EMAIL'       ? 'rgba(96,165,250,0.9)'  :
+                               task.actionType === 'CLAUDE_CODE' ? 'rgba(192,132,252,0.9)' :
+                                                                   'rgba(52,211,153,0.9)',
+                      }}
+                    >
+                      Do it
+                    </button>
+                  )}
                   <button
                     onClick={() => setEditingId(isEditing ? null : task.id)}
                     aria-label="Edit task"
@@ -721,6 +761,14 @@ function ActionItemsSection({ tasks: initialTasks, speakers, onApproved, onAnyCh
             Dismiss ({activeChecked.length})
           </button>
         </div>
+      )}
+
+      {chatTask && (
+        <ActionChatModal
+          task={chatTask}
+          meetingId={meetingId}
+          onClose={() => setChatTask(null)}
+        />
       )}
     </div>
   )
@@ -926,6 +974,7 @@ export default function MeetingDetail({ meetingId, onBack, onTasksApproved, onDe
               <ActionItemsSection
                 tasks={detail.pendingTasks}
                 speakers={detail.speakers}
+                meetingId={meetingId}
                 onApproved={handleTasksApproved}
                 onAnyChange={onTasksApproved}
               />

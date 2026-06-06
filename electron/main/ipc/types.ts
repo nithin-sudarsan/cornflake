@@ -77,6 +77,10 @@ export const RENDERER_CHANNELS = {
   DECISIONS_GET_BY_ID:         'decisions:getById',
   DECISIONS_UPDATE_TEXT:       'decisions:updateText',
   DECISIONS_DELETE:            'decisions:delete',
+  ACTION_EXECUTE:              'action:execute',
+  ACTION_CHAT:                 'action:chat',
+  ACTION_SEND_EMAIL:           'action:sendEmail',
+  ACTION_ADD_CALENDAR:         'action:addCalendar',
 } as const
 
 export type MainChannel = typeof MAIN_CHANNELS[keyof typeof MAIN_CHANNELS]

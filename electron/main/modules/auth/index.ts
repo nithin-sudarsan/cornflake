@@ -101,15 +101,18 @@ function buildAuthUrl(redirectUri: string): string {
   // WorkOS authorization URL — built manually so the client doesn't need the
   // server-side WORKOS_API_KEY just to construct a URL.
   const params = new URLSearchParams({
-    response_type: 'code',
-    client_id:     clientId,
-    redirect_uri:  redirectUri,
-    provider:      'GoogleOAuth',
-    // Force Google to re-show its consent screen so it always returns a refresh
-    // token. Without this, Google only issues a refresh_token on the user's
-    // very first consent — subsequent logins get an access_token only, and the
-    // calendar watcher silently dies 1 hour later with no recovery path.
-    prompt:        'consent',
+    response_type:   'code',
+    client_id:       clientId,
+    redirect_uri:    redirectUri,
+    provider:        'GoogleOAuth',
+    prompt:          'consent',
+    // Request additional Google scopes beyond WorkOS defaults (calendar.readonly).
+    // WorkOS passes these through to Google's consent screen.
+    // Required for: sending email (gmail.send) and creating calendar events (calendar.events).
+    provider_scopes: [
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/calendar.events',
+    ].join(' '),
   })
   return `https://api.workos.com/user_management/authorize?${params.toString()}`
 }

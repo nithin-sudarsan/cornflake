@@ -30,6 +30,8 @@ import { checkForUpdates, openReleasePage } from '../modules/updater'
 import { runTranscriptionPipeline } from '../modules/transcription'
 import { inferSpeakers, updateVoiceProfiles } from '../modules/speaker-inference'
 import { runExtractionPipeline, generateCommsForMeeting } from '../modules/llm/extraction'
+import { showTaskNotifications, executeTaskAction } from '../modules/action-router'
+import { chatForAction, sendViaGmail, addGoogleCalendarEvent, launchClaudeCode } from '../modules/action-chat/index.js'
 import { sendComms } from '../modules/comms-dispatch'
 import { syncModule } from '../modules/sync'
 import { setRefreshHandler } from '../modules/api-client'
@@ -313,6 +315,58 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     return null
   })
 
+  ipcMain.handle(RENDERER_CHANNELS.ACTION_EXECUTE, async (_e, payload: { taskId: string; taskTitle: string; actionType: string }) => {
+    await executeTaskAction(payload.taskId, payload.taskTitle, payload.actionType as import('../modules/database').ActionType)
+    return null
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.ACTION_CHAT, async (_e, payload: {
+    taskTitle: string
+    actionType: 'EMAIL' | 'CALENDAR' | 'CLAUDE_CODE'
+    meetingId: string
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  }) => {
+    return chatForAction(payload.taskTitle, payload.actionType, payload.meetingId, payload.messages)
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.ACTION_SEND_EMAIL, async (_e, payload: {
+    toName: string; toEmail: string; subject: string; body: string
+  }) => {
+    const session   = _activeSession
+    const fromName  = session?.name ?? session?.email ?? 'Cornflake User'
+    const fromEmail = session?.email ?? ''
+    try {
+      await sendViaGmail(payload.toName, payload.toEmail, payload.subject, payload.body, fromName, fromEmail)
+      return { success: true, method: 'gmail' }
+    } catch (err) {
+      const msg = (err as Error).message ?? ''
+      // Gmail API not enabled or scope not yet granted → fall back to mailto
+      const isApiDisabled = msg.includes('has not been used') || msg.includes('disabled') || msg.includes('accessNotConfigured')
+      const isScopeError  = msg.includes('insufficient') || msg.includes('scope') || msg.includes('403')
+      if (isApiDisabled || isScopeError) {
+        console.warn('[action:sendEmail] Gmail API unavailable, falling back to mailto:', msg)
+        const to      = payload.toEmail ? encodeURIComponent(payload.toEmail) : ''
+        const subject = encodeURIComponent(payload.subject)
+        const body    = encodeURIComponent(payload.body)
+        shell.openExternal(`mailto:${to}?subject=${subject}&body=${body}`)
+        return { success: true, method: 'mailto' }
+      }
+      throw err
+    }
+  })
+
+  ipcMain.handle(RENDERER_CHANNELS.ACTION_ADD_CALENDAR, async (_e, payload: {
+    title: string; dateIso: string; time: string; durationMin: number; description: string
+  }) => {
+    const link = await addGoogleCalendarEvent(payload.title, payload.dateIso, payload.time, payload.durationMin, payload.description)
+    return { success: true, link }
+  })
+
+  ipcMain.handle('action:launchClaude', async (_e, payload: { contextMd: string; taskTitle: string }) => {
+    await launchClaudeCode(payload.contextMd, payload.taskTitle)
+    return { success: true }
+  })
+
   // ---------------------------------------------------------------------------
   // Auth — WorkOS SSO
   // ---------------------------------------------------------------------------
@@ -453,6 +507,14 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         .then(async transcript => {
           const inferResult = await inferSpeakers(transcript, meetingId, paths.systemAudioPath)
           const reviewPayload = await runExtractionPipeline(meetingId)
+
+          // Fire native macOS notifications — one per extracted task with its action type.
+          // Shown after extraction so action types are already classified and stored.
+          const meeting = getDb().getMeetingById(meetingId)
+          if (meeting) {
+            showTaskNotifications(reviewPayload.tasks, meeting.title)
+          }
+
           sendProcessingComplete({
             meetingId,
             requiresManualLabelling: inferResult.requiresManualLabelling,
@@ -555,6 +617,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
     // Now that all speakers are named, run LLM extraction
     runExtractionPipeline(payload.meetingId)
       .then(reviewPayload => {
+        const meeting = getDb().getMeetingById(payload.meetingId)
+        if (meeting) showTaskNotifications(reviewPayload.tasks, meeting.title)
         mainWindow.webContents.send(MAIN_CHANNELS.PROCESSING_COMPLETE, {
           meetingId:               payload.meetingId,
           requiresManualLabelling: false,

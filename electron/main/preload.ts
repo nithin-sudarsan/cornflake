@@ -57,6 +57,10 @@ const CH = {
   DECISIONS_GET_BY_ID:         'decisions:getById',
   DECISIONS_UPDATE_TEXT:       'decisions:updateText',
   DECISIONS_DELETE:            'decisions:delete',
+  ACTION_EXECUTE:              'action:execute',
+  ACTION_CHAT:                 'action:chat',
+  ACTION_SEND_EMAIL:           'action:sendEmail',
+  ACTION_ADD_CALENDAR:         'action:addCalendar',
   // Main → Renderer
   MEETING_UPCOMING:        'meeting:upcoming',
   CALENDAR_EVENTS_UPDATED: 'calendar:eventsUpdated',
@@ -128,6 +132,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getDecisionById:         (id: string)                                => ipcRenderer.invoke(CH.DECISIONS_GET_BY_ID, id),
   updateDecisionText:      (payload: { id: string; text: string })     => ipcRenderer.invoke(CH.DECISIONS_UPDATE_TEXT, payload),
   deleteDecision:          (id: string)                                => ipcRenderer.invoke(CH.DECISIONS_DELETE, id),
+  executeAction:           (payload: { taskId: string; taskTitle: string; actionType: string }) => ipcRenderer.invoke(CH.ACTION_EXECUTE, payload),
+  actionChat:              (payload: unknown) => ipcRenderer.invoke(CH.ACTION_CHAT, payload),
+  sendEmail:               (payload: unknown) => ipcRenderer.invoke(CH.ACTION_SEND_EMAIL, payload),
+  addCalendarEvent:        (payload: unknown) => ipcRenderer.invoke(CH.ACTION_ADD_CALENDAR, payload),
+  launchClaude:            (payload: unknown) => ipcRenderer.invoke('action:launchClaude', payload),
 
   // Main → Renderer (event subscriptions)
   onMeetingUpcoming:        (cb: (payload: unknown) => void) => ipcRenderer.on(CH.MEETING_UPCOMING,        (_e, p) => cb(p)),

@@ -24,6 +24,7 @@ app.setName('Cornflake')
 import { registerIpcHandlers, registerTrayHooks } from './ipc'
 import { initDatabase, closeDatabase } from './modules/database'
 import { primeFromKeychain } from './modules/auth'
+import { initMubit } from './modules/action-router/mubit-client'
 import { initUpdater, stopUpdater } from './modules/updater'
 import {
   startCalendarWatcher,
@@ -345,6 +346,11 @@ app.whenReady().then(async () => {
   // cache instead of triggering a TCC prompt per access.
   await primeFromKeychain().catch(err =>
     console.error('[boot] primeFromKeychain failed:', (err as Error).message)
+  )
+
+  // Initialise Mubit memory for the action router. No-op if package is absent.
+  initMubit().catch(err =>
+    console.warn('[boot] initMubit failed:', (err as Error).message)
   )
 
   // Set the macOS Dock icon. The .icns in package.json applies at build/launch

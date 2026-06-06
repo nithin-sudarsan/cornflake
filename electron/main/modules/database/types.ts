@@ -2,6 +2,7 @@ export type Confidence = 'high' | 'medium' | 'low' | 'manual'
 export type TaskStatus   = 'awaiting_approval' | 'pending' | 'confirmed' | 'dismissed'
 export type TaskPriority = 'normal' | 'high' | 'urgent'
 export type DeliveryChannel = 'push' | 'email' | 'both'
+export type ActionType = 'EMAIL' | 'CLAUDE_CODE' | 'CALENDAR'
 
 export interface Meeting {
   id: string
@@ -55,6 +56,7 @@ export interface Task {
   originList: string | null
   sortOrder: number | null
   priority: TaskPriority
+  actionType: ActionType | null
   completedAt: number | null
   createdAt: number
   updatedAt: number
@@ -71,6 +73,7 @@ export interface TaskForApproval {
   transcriptQuote: string | null
   extractionConfidence: Confidence | null
   note: string | null
+  actionType: ActionType | null
 }
 
 export interface ListRecord {
@@ -176,6 +179,7 @@ export interface NewTask {
   remindAtMs?: number | null
   transcriptQuote: string | null
   extractionConfidence: Confidence | null
+  actionType?: ActionType | null
   note?: string | null
   listName?: string
 }

@@ -23,7 +23,7 @@ export function registerDeleteHook(
 
 import type {
   Meeting, Speaker, Utterance, Task, Decision, Comm,
-  ReviewPayload, NewTask, NewComm, Confidence, TaskStatus, TaskPriority, DeliveryChannel, ListRecord,
+  ReviewPayload, NewTask, NewComm, Confidence, TaskStatus, TaskPriority, ActionType, DeliveryChannel, ListRecord,
   PastMeeting, MeetingDetailData, TaskDetail,
 } from './types'
 
@@ -58,6 +58,7 @@ interface TaskRow {
   completed_at: number | null; created_at: number; updated_at: number
   sort_order: number | null
   priority: string
+  action_type: string | null
   meeting_title?: string | null  // populated by JOIN in list queries
 }
 
@@ -120,6 +121,7 @@ function mapTask(r: TaskRow): Task {
     originList: r.origin_list ?? null,
     sortOrder: r.sort_order ?? null,
     priority: (r.priority ?? 'normal') as TaskPriority,
+    actionType: (r.action_type as ActionType | null) ?? null,
     completedAt: r.completed_at ?? null,
     createdAt: r.created_at, updatedAt: r.updated_at,
   }
@@ -337,8 +339,8 @@ export function buildQueries(db: Database.Database) {
       INSERT INTO tasks
         (id, meeting_id, assignee_speaker_id, title, deadline_text, deadline_ms,
          remind_offset_ms, remind_at_ms, transcript_quote, extraction_confidence,
-         status, note, list_name, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_approval', ?, ?, ?, ?)
+         status, note, list_name, action_type, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_approval', ?, ?, ?, ?, ?)
     `)
     const ids: string[] = []
     const tx = db.transaction(() => {
@@ -350,7 +352,7 @@ export function buildQueries(db: Database.Database) {
           t.deadlineText, t.deadlineMs,
           t.remindOffsetMs ?? -3600000, t.remindAtMs ?? null,
           t.transcriptQuote, t.extractionConfidence,
-          t.note ?? null, t.listName ?? 'Reminders', ts, ts
+          t.note ?? null, t.listName ?? 'Reminders', t.actionType ?? null, ts, ts
         )
       }
     })
@@ -884,10 +886,12 @@ export function buildQueries(db: Database.Database) {
       transcript_quote: string | null; extraction_confidence: string | null
       note: string | null
       assignee_name: string | null; is_self: number
+      action_type: string | null
     }
     const pendingTaskRows = db.prepare(`
       SELECT t.id, t.title, t.assignee_speaker_id, t.deadline_text, t.deadline_ms,
              t.transcript_quote, t.extraction_confidence, t.note,
+             t.action_type,
              s.name AS assignee_name, s.is_self
       FROM tasks t
       LEFT JOIN speakers s ON s.id = t.assignee_speaker_id
@@ -926,6 +930,7 @@ export function buildQueries(db: Database.Database) {
         transcriptQuote:     r.transcript_quote,
         extractionConfidence: r.extraction_confidence as Confidence | null,
         note:                r.note,
+        actionType:          (r.action_type as ActionType | null) ?? null,
       })),
       speakers: speakers.map(s => ({ id: s.id, name: s.name, isSelf: s.isSelf, confidence: s.confidence, deepgramId: s.deepgramId })),
       utterances: utterances.map(u => ({
@@ -1171,7 +1176,21 @@ export function buildQueries(db: Database.Database) {
     const placeholders = Object.keys(filtered).map(() => '?').join(', ')
     const vals         = Object.values(filtered)
 
-    db.prepare(`INSERT OR REPLACE INTO ${table} (${cols}) VALUES (${placeholders})`).run(vals)
+    // Use INSERT ... ON CONFLICT DO UPDATE instead of INSERT OR REPLACE so we never
+    // delete + re-insert the row — DELETE triggers ON DELETE CASCADE and wipes child
+    // rows (e.g. tasks belonging to a meeting) even though we only want to update cols.
+    const setClauses = Object.keys(filtered)
+      .filter(k => k !== 'id')
+      .map(k => `${k} = excluded.${k}`)
+      .join(', ')
+
+    if (setClauses) {
+      db.prepare(
+        `INSERT INTO ${table} (${cols}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${setClauses}`
+      ).run(vals)
+    } else {
+      db.prepare(`INSERT OR IGNORE INTO ${table} (${cols}) VALUES (${placeholders})`).run(vals)
+    }
     return true
   }
 

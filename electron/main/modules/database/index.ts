@@ -8,7 +8,7 @@ export type { Queries } from './queries'
 export { registerWriteHook, registerDeleteHook } from './queries'
 export type {
   Meeting, Speaker, Utterance, Task, Decision, Comm,
-  ReviewPayload, NewTask, NewComm, Confidence, TaskStatus, TaskPriority, DeliveryChannel, ListRecord,
+  ReviewPayload, NewTask, NewComm, Confidence, TaskStatus, TaskPriority, DeliveryChannel, ActionType, ListRecord,
   PastMeeting, MeetingDetailData, TaskForApproval, TaskDetail,
 } from './types'
 
