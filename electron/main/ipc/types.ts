@@ -84,6 +84,9 @@ export const RENDERER_CHANNELS = {
   ACTION_SEND_EMAIL:           'action:sendEmail',
   ACTION_ADD_CALENDAR:         'action:addCalendar',
   ACTION_LIST_PROJECTS:        'action:listProjects',
+  BILLING_GET_STATUS:          'billing:getStatus',
+  BILLING_CREATE_CHECKOUT:     'billing:createCheckout',
+  BILLING_OPEN_PORTAL:         'billing:openPortal',
 } as const
 
 export type MainChannel = typeof MAIN_CHANNELS[keyof typeof MAIN_CHANNELS]

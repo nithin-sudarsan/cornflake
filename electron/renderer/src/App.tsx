@@ -12,12 +12,14 @@ import DeepgramPrivacyModal from './components/DeepgramPrivacyModal'
 import UpdatePrompt from './components/UpdatePrompt'
 import LoginScreen from './components/LoginScreen'
 import SyncLoadingScreen from './components/SyncLoadingScreen'
+import PaywallScreen from './components/PaywallScreen'
 import type { ListRecord, ProcessingCompletePayload } from './hooks/useIPC'
 import { useOnProcessingComplete } from './hooks/useIPC'
 
-type MainView  = 'list' | 'processing' | 'meeting-detail' | 'reminder-detail' | 'decisions-graph' | 'decision-detail'
-type AuthState = 'loading' | 'unauthenticated' | 'authenticated'
-type SyncState = 'idle' | 'pulling' | 'ready'
+type MainView         = 'list' | 'processing' | 'meeting-detail' | 'reminder-detail' | 'decisions-graph' | 'decision-detail'
+type AuthState        = 'loading' | 'unauthenticated' | 'authenticated'
+type SubscriptionState = 'checking' | 'subscribed' | 'unsubscribed'
+type SyncState        = 'idle' | 'pulling' | 'ready'
 
 // How long to wait before showing the loading screen (fast pulls stay invisible).
 const LOADING_SCREEN_DELAY_MS = 300
@@ -32,8 +34,9 @@ interface UserProfile {
 }
 
 export default function App() {
-  const [authState, setAuthState]     = useState<AuthState>('loading')
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
+  const [authState, setAuthState]           = useState<AuthState>('loading')
+  const [subscriptionState, setSubscriptionState] = useState<SubscriptionState>('checking')
+  const [userProfile, setUserProfile]       = useState<UserProfile | null>(null)
   const [activeList, setActiveList]     = useState('Reminders')
   const [customLists, setCustomLists]   = useState<ListRecord[]>([])
   const [mainView, setMainView]         = useState<MainView>('list')
@@ -152,9 +155,26 @@ export default function App() {
     window.electronAPI.onAuthLogout(() => {
       setUserProfile(null)
       setAuthState('unauthenticated')
+      setSubscriptionState('checking')
     })
     return () => window.electronAPI.removeAllListeners('auth:logout')
   }, [])
+
+  // Check subscription status whenever the user becomes authenticated.
+  // Runs in parallel with the sync pull — no extra latency on the happy path.
+  useEffect(() => {
+    if (authState !== 'authenticated') return
+    setSubscriptionState('checking')
+    window.electronAPI.getSubscriptionStatus()
+      .then(({ status }: { status: string }) => {
+        const active = status === 'active' || status === 'trialing'
+        setSubscriptionState(active ? 'subscribed' : 'unsubscribed')
+      })
+      .catch(() => {
+        // Fail open — if billing API is unreachable, let the user in
+        setSubscriptionState('subscribed')
+      })
+  }, [authState])
 
   // On every mount (Cmd+R): signal main to restore session + push calendar events.
   useEffect(() => {
@@ -281,10 +301,14 @@ export default function App() {
     return <LoginScreen />
   }
 
-  // Authenticated but the initial pull hasn't finished. Hold the main UI back
+  if (authState === 'authenticated' && subscriptionState === 'unsubscribed') {
+    return <PaywallScreen onSubscriptionConfirmed={() => setSubscriptionState('subscribed')} />
+  }
+
+  // Authenticated but subscription check or initial pull hasn't finished. Hold the main UI back
   // so it doesn't render with empty local SQLite. If the pull is fast (<300ms),
   // we render a blank background; if it takes longer, swap in the loading screen.
-  if (syncState === 'pulling') {
+  if (subscriptionState === 'checking' || syncState === 'pulling') {
     return showLoadingScreen
       ? <SyncLoadingScreen />
       : <div style={{

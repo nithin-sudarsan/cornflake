@@ -521,6 +521,16 @@ export default function Sidebar({
                 </p>
                 <div style={{ height: 1, backgroundColor: 'var(--color-divider)', margin: '8px 0' }} />
                 <button
+                  onClick={() => { setShowPopover(false); window.electronAPI.openBillingPortal() }}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--color-text-secondary)', fontSize: 12, padding: '0 0 8px',
+                    fontFamily: 'inherit', width: '100%', textAlign: 'left',
+                  }}
+                >
+                  Manage subscription
+                </button>
+                <button
                   onClick={handleSignOut}
                   style={{
                     background: 'none', border: 'none', cursor: 'pointer',
