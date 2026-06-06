@@ -129,6 +129,7 @@ interface ElectronAPI {
   removeAllListeners: (channel: string) => void
   getSubscriptionStatus: () => Promise<{ status: string }>
   createCheckoutSession: () => Promise<{ url: string }>
+  openBillingPortal: () => Promise<void>
 }
 
 interface Window {

@@ -876,4 +876,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle(RENDERER_CHANNELS.BILLING_CREATE_CHECKOUT, async () => {
     return await apiPost('/api/billing/create-checkout-session', {})
   })
+
+  ipcMain.handle(RENDERER_CHANNELS.BILLING_OPEN_PORTAL, async () => {
+    const { url } = await apiPost('/api/billing/portal', {})
+    shell.openExternal(url)
+  })
 }

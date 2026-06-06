@@ -65,6 +65,7 @@ const CH = {
   ACTION_LIST_PROJECTS:        'action:listProjects',
   BILLING_GET_STATUS:          'billing:getStatus',
   BILLING_CREATE_CHECKOUT:     'billing:createCheckout',
+  BILLING_OPEN_PORTAL:         'billing:openPortal',
   // Main → Renderer
   MEETING_UPCOMING:        'meeting:upcoming',
   CALENDAR_EVENTS_UPDATED: 'calendar:eventsUpdated',
@@ -145,6 +146,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setTaskActionType:       (payload: { taskId: string; actionType: string }) => ipcRenderer.invoke(CH.TASK_SET_ACTION_TYPE, payload),
   getSubscriptionStatus:   () => ipcRenderer.invoke(CH.BILLING_GET_STATUS),
   createCheckoutSession:   () => ipcRenderer.invoke(CH.BILLING_CREATE_CHECKOUT),
+  openBillingPortal:       () => ipcRenderer.invoke(CH.BILLING_OPEN_PORTAL),
 
   // Main → Renderer (event subscriptions)
   onMeetingUpcoming:        (cb: (payload: unknown) => void) => ipcRenderer.on(CH.MEETING_UPCOMING,        (_e, p) => cb(p)),
